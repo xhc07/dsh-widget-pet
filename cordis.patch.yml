@@ -1,5 +1,5 @@
 # ============================================================================
-# dsh-claude-pet —— DSH bundle patch
+# dsh-widget-pet —— DSH bundle patch
 # ============================================================================
 # 插件挂载声明：DSH 启动时按 bundle 层栈叠加各插件 patch，
 # 本文件把 Claude 娘余额桌宠插入当前 profile 的配置树。
@@ -12,5 +12,5 @@
 # ============================================================================
 
 - insert:
-    - id: dsh-claude-pet
-      name: dsh-claude-pet
+    - id: dsh-widget-pet
+      name: dsh-widget-pet

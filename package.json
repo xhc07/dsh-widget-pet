@@ -1,6 +1,6 @@
 {
-  "name": "dsh-claude-pet",
-  "version": "1.1.0",
+  "name": "dsh-widget-pet",
+  "version": "1.2.1",
   "description": "DSH Web 界面右下角的 Claude 娘余额桌宠：DeepSeek 余额、今日已用、每轮消耗、峰谷时段，以及思考/读文件/跑命令/等你回答/等你授权/出错/打断/石化等任务状态",
   "keywords": [
     "dsh",

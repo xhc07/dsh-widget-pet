@@ -1,4 +1,4 @@
-# DSH × Claude 娘桌宠（dsh-claude-pet）
+# DSH × Claude 娘桌宠（dsh-widget-pet）
 
 ![预览：余额面板与桌宠](docs/preview.png)
 
@@ -53,12 +53,19 @@ DeepSeek 余额、今日已用、每轮消耗、峰谷定价，以及「思考 /
 
 - **左键点角色 / 余额徽章**：打开「余额与用量」面板（余额、充值 / 赠金、今日已用、最近一轮、峰谷、近 7 天、今日模型）。
 - **拖动**：按住角色拖到任意位置；位置存在浏览器 `localStorage`。
-- **右键**：菜单里切换大小（小 / 中 / 大）、显示气泡、提示音、打开设置、刷新余额、隐藏桌宠。
-- **提示音**：一轮完成 / 出错 / 等待回答或授权时播放 `done.wav` / `error.wav`，可总开关。
+- **右键**：菜单里切换大小（小 / 中 / 大）、打开设置、刷新余额、隐藏桌宠。
+- **提示音**：一轮完成 / 出错 / 等待回答或授权时播放 `done.wav` / `error.wav`，可在设置里总开关。
 - **显示设置**（「余额与用量」面板右上角 ⚙，或右键菜单「设置」）：
-  - 启用人物动画：关闭后角色不再上下浮动；
-  - 对话框显示方式：一直显示 / 显示 5 秒后收起（鼠标移到角色上会重新显示）；
-  - 余额用量显示方式：一直显示 / 余额或今日已用变化时显示 5 秒（鼠标移到角色上会重新显示）。
+  - 启用动画：总开关，关闭后角色与对话框动画全部停止；
+  - 启用角色悬浮动画：角色上下浮动、换状态时的小跳；
+  - 启用角色捏捏动画：点击角色时压缩回弹，像被捏了一下；
+  - 启用对话框动画：气泡出现 / 收起的过渡与「思考中」的点点动画；
+  - 显示与大小：点开后弹出右键菜单，可调大小、隐藏桌宠等；
+  - 提示音：完成 / 出错 / 等待回答或授权时是否播放；
+  - 对话框显示方式：自动（新对话显示 5 秒后收起）/ 不显示 / 一直显示，默认自动；
+  - 余额用量气泡显示方式：自动（余额或今日已用变化时显示 5 秒）/ 不显示 / 一直显示；
+  - 字体：默认字体 / 得意黑（内置 Smiley Sans v2.0.1，SIL OFL-1.1；默认得意黑）；
+  - 点击角色显示余额与用量窗口：关闭后点角色不再打开面板，仍可点余额徽章或右键菜单打开。
 - 隐藏后右下角留一个圆形头像按钮，点一下召回。
 
 ![显示设置](docs/settings.png)
@@ -68,12 +75,15 @@ DeepSeek 余额、今日已用、每轮消耗、峰谷定价，以及「思考 /
 ## 安装
 
 > 插件目录必须放在**以后不会移动或删除**的位置；用 `link:` 安装后移动目录需要重新安装。
+>
+> 从旧包名 `dsh-claude-pet` 升级时，请先移除旧包再安装 `dsh-widget-pet`，否则两个挂件会同时出现。
+> 账本文件（`.dshcp-*`）与浏览器设置键（`dshcp-*`）没有改名，已有消费记录、位置和开关会继续沿用。
 
 ### 官方桌面端（Electron，当前 profile 为 `desktop`）
 
 桌面端 profile 由应用自身管理，`dsh plugin --profile desktop …` 会被拒绝。推荐在桌面端会话里让宿主安装：
 
-> 请使用当前桌面端内置的 `plugin_manager` 安装本地插件 **dsh-claude-pet**。
+> 请使用当前桌面端内置的 `plugin_manager` 安装本地插件 **dsh-widget-pet**。
 > 安装规格：`link:E:\UsersDir\Documents\deepseek-harness\default-workspace\DSH-DesktopPet\claude-pet-widget`
 > 先核对当前 profile 与是否已有同名插件；完成后告诉我安装结果以及是否需要重启。
 
@@ -83,12 +93,12 @@ DeepSeek 余额、今日已用、每轮消耗、峰谷定价，以及「思考 /
 
 1. 打开 `%USERPROFILE%\.dsh\profiles\desktop\package.json`；
 2. 在 `dependencies` 里加
-   `"dsh-claude-pet": "link:E:\\UsersDir\\Documents\\deepseek-harness\\default-workspace\\DSH-DesktopPet\\claude-pet-widget"`；
-3. 在 `dsh.profile.bundles` 里加一项 `"dsh-claude-pet"`；
+   `"dsh-widget-pet": "link:E:\\UsersDir\\Documents\\deepseek-harness\\default-workspace\\DSH-DesktopPet\\claude-pet-widget"`；
+3. 在 `dsh.profile.bundles` 里加一项 `"dsh-widget-pet"`；
 4. 在 `%USERPROFILE%\.dsh\profiles\desktop\node_modules` 下建目录联接：
    ```powershell
    New-Item -ItemType Junction `
-     -Path "$env:USERPROFILE\.dsh\profiles\desktop\node_modules\dsh-claude-pet" `
+     -Path "$env:USERPROFILE\.dsh\profiles\desktop\node_modules\dsh-widget-pet" `
      -Target "E:\UsersDir\Documents\deepseek-harness\default-workspace\DSH-DesktopPet\claude-pet-widget"
    ```
 5. 完全退出并重开桌面端。
@@ -104,7 +114,7 @@ dsh plugin --profile web add link:E:\UsersDir\Documents\deepseek-harness\default
 
 ### 安装后自检
 
-- 浏览器访问 `http://127.0.0.1:<端口>/dsh-claude-pet/state.json`，应返回 `{"ok":true,...}`；
+- 浏览器访问 `http://127.0.0.1:<端口>/dsh-widget-pet/state.json`，应返回 `{"ok":true,...}`；
 - `%USERPROFILE%\.dsh\.dshcp-usage.json` 出现，且余额刷新后 `accounting.books` 里有当天记录；
 - 右下角出现角色与 `¥余额 · 今日 ¥x` 徽章。
 
@@ -123,7 +133,7 @@ dsh plugin --profile web add link:E:\UsersDir\Documents\deepseek-harness\default
 | `.dshcp-turn.json` | 最近一轮的持久化序号（避免重启后前端重播提示音） |
 
 - API key 只通过 DSH 的凭据服务读取，**不会下发给浏览器，也不会写进账本**；
-- 前端只调用 `/dsh-claude-pet/*` 的只读接口，设置存在浏览器 `localStorage`（键 `dshcp-*`）；
+- 前端只调用 `/dsh-widget-pet/*` 的只读接口，设置存在浏览器 `localStorage`（键 `dshcp-*`）；
 - 不联网查询除 DeepSeek 官方余额接口以外的任何地址（账号路走 DSH 自身服务）。
 
 ---
@@ -145,7 +155,7 @@ dsh plugin --profile web add link:E:\UsersDir\Documents\deepseek-harness\default
 **桌面端右下角什么都没有**
 1. 确认插件已进入 `profiles/desktop/package.json` 的 `dsh.profile.bundles`；
 2. 桌面端的注入表在**宿主启动时一次性收集**，装完必须完全退出重开，不能只刷新页面；
-3. 看宿主日志里有没有 `claude-desk-pet-widget` 的加载错误。
+3. 看宿主日志里有没有 `dsh-widget-pet` 的加载错误。
 
 **改了 `assets/claude-pet.js` 不生效**
 宿主按 mtime 热读取脚本，浏览器 `Ctrl+F5` 即可；改 `lib/index.js` 需要重载插件或重启宿主。
@@ -155,7 +165,7 @@ dsh plugin --profile web add link:E:\UsersDir\Documents\deepseek-harness\default
 ## 目录结构
 
 ```text
-dsh-claude-pet/
+dsh-widget-pet/
 ├── package.json
 ├── cordis.patch.yml          # bundle 挂载声明
 ├── icon.png                  # 插件列表图标（256×256）
@@ -165,7 +175,8 @@ dsh-claude-pet/
 ├── assets/
 │   ├── claude-pet.js         # 前端挂件：立绘动画、气泡、面板、菜单、音效
 │   ├── sprites/*.png         # 10 张立绘（来自 claude-desk-pet）
-│   └── sounds/*.wav          # done / error（来自 claude-desk-pet）
+│   ├── sounds/*.wav          # done / error（来自 claude-desk-pet）
+│   └── fonts/                # 得意黑 Smiley Sans v2.0.1（OFL-1.1）
 ├── docs/*.png                # README 展示图（余额面板 / 设置页）
 └── dev/                      # 本机测试脚本（npm 包不包含，源码目录 / 压缩包保留）
     ├── test-host.mjs         # mock 宿主：任务状态 / 记账 / 路由 / 安全
@@ -192,6 +203,7 @@ node dev/preview-server.mjs 51977
 ### 换立绘 / 改台词
 
 - 立绘：替换 `assets/sprites/` 下同名 PNG（透明背景，建议 292×400），文件名保持不变；
+- 字体：可替换 `assets/fonts/SmileySans-Oblique.ttf`；字体设置里的「得意黑」始终读取这个文件；
 - 台词：改 `lib/index.js` 里的 `setPet(...)` 文案与 `describeTool()`；
 - 提示音：替换 `assets/sounds/done.wav` / `error.wav`。
 
@@ -205,6 +217,9 @@ node dev/preview-server.mjs 51977
 - **余额、记账、峰谷定价与「每轮消耗」口径**来自
   [DeepSeek-Balance-Whale-Widget](https://github.com/MeteorNOX/DeepSeek-Balance-Whale-Widget)
   0.4.2 的 `accounting.mjs` 与宿主实现（MIT），没有使用小鲸鱼的美术素材。
+- **得意黑（Smiley Sans v2.0.1）** 来自
+  [atelier-anchor/smiley-sans](https://github.com/atelier-anchor/smiley-sans)，按 **SIL Open Font License 1.1** 随插件分发；
+  完整许可与版权声明见 `assets/fonts/README.md` 及上游仓库。
 - 这是个人粉丝作品，与 Anthropic、DeepSeek 官方无关。
 
 ## 许可

@@ -1,20 +1,20 @@
 // DSH × Claude 娘桌宠 —— 前端挂件
 // ---------------------------------------------------------------------------
 // 由宿主注入到 DSH 页面。只跟宿主的三条只读接口打交道：
-//   GET /dsh-claude-pet/state.json    每秒轮询：桌宠状态 / 挂起 / 最近一轮 / 余额快照
-//   GET /dsh-claude-pet/balance.json  60 秒刷新：余额 + 今日已用（余额观测账本）
-//   GET /dsh-claude-pet/records.json  打开面板时：今日 / 近 7 天 / 全部记录
+//   GET /dsh-widget-pet/state.json    每秒轮询：桌宠状态 / 挂起 / 最近一轮 / 余额快照
+//   GET /dsh-widget-pet/balance.json  60 秒刷新：余额 + 今日已用（余额观测账本）
+//   GET /dsh-widget-pet/records.json  打开面板时：今日 / 近 7 天 / 全部记录
 // 立绘与音效也由宿主提供：/sprite/<name>.png、/sound/done.wav、/sound/error.wav
 // 所有设置只存浏览器 localStorage，不上传、不写配置。
 // ---------------------------------------------------------------------------
 (function () {
   'use strict'
 
-  if (window.__dshClaudePet) return
-  window.__dshClaudePet = true
+  if (window.__dshWidgetPet) return
+  window.__dshWidgetPet = true
 
-  var API = '/dsh-claude-pet'
-  var VERSION = '1.1.0'
+  var API = '/dsh-widget-pet'
+  var VERSION = '1.2.1'
   var POLL_MS = 1000
   var BALANCE_MS = 60000
   var IDLE_AFTER_MS = 10 * 60 * 1000
@@ -24,17 +24,28 @@
   var AUTO_HIDE_MS = 5000
 
   var defaults = {
-    size: 'medium', bubble: true, sound: true, hidden: false,
-    animate: true, bubbleMode: 'always', badgeMode: 'always',
+    size: 'medium', sound: true, hidden: false,
+    animate: true, floatAnim: true, petAnim: true, bubbleAnim: true,
+    bubbleMode: 'auto', badgeMode: 'always', clickPanel: true, font: 'smiley', fontDefaultVersion: 2,
   }
   var settings = loadJson(STORAGE_SETTINGS, defaults) || defaults
   if (!SIZES[settings.size]) settings.size = 'medium'
-  if (typeof settings.bubble !== 'boolean') settings.bubble = true
   if (typeof settings.sound !== 'boolean') settings.sound = true
   if (typeof settings.hidden !== 'boolean') settings.hidden = false
   if (typeof settings.animate !== 'boolean') settings.animate = true
-  if (settings.bubbleMode !== 'auto') settings.bubbleMode = 'always'
-  if (settings.badgeMode !== 'auto') settings.badgeMode = 'always'
+  if (typeof settings.floatAnim !== 'boolean') settings.floatAnim = true
+  if (typeof settings.petAnim !== 'boolean') settings.petAnim = true
+  if (typeof settings.bubbleAnim !== 'boolean') settings.bubbleAnim = true
+  if (typeof settings.clickPanel !== 'boolean') settings.clickPanel = true
+  if (settings.font !== 'smiley' && settings.font !== 'default') settings.font = 'smiley'
+  // 1.2.1 起默认字体改为得意黑：旧设置没有版本标记时迁移一次，之后仍可手动切回默认字体。
+  if (settings.fontDefaultVersion !== 2) {
+    settings.font = 'smiley'
+    settings.fontDefaultVersion = 2
+    try { localStorage.setItem(STORAGE_SETTINGS, JSON.stringify(settings)) } catch (e) {}
+  }
+  if (['auto', 'none', 'always'].indexOf(settings.bubbleMode) === -1) settings.bubbleMode = 'auto'
+  if (['auto', 'none', 'always'].indexOf(settings.badgeMode) === -1) settings.badgeMode = 'always'
 
   var state = {
     activity: null,
@@ -55,6 +66,10 @@
     panelView: 'main',
     menuOpen: false,
     costTimer: 0,
+    squishTimer: 0,
+    fontFacePromise: null,
+    fontFaceReady: false,
+    fontFaceError: null,
     hovering: false,
     hoverOutTimer: 0,
     bubbleAutoHidden: false,
@@ -154,8 +169,20 @@
 
   // ------------------------------------------------------------------ 构建
   var CSS = `
+@font-face {
+  font-family: 'SmileySans';
+  src: url('/dsh-widget-pet/font/smiley-sans.ttf') format('truetype');
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+}
 :host { all: initial; }
 * { box-sizing: border-box; }
+:host(.font-smiley) .pet,
+:host(.font-smiley) .menu,
+:host(.font-smiley) .restore {
+  font-family: 'SmileySans', -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei UI", "PingFang SC", sans-serif !important;
+}
 .pet, .pet * { -webkit-user-select: none; user-select: none; -webkit-tap-highlight-color: transparent; }
 .pet {
   position: fixed; right: 22px; bottom: 118px; width: 276px;
@@ -225,7 +252,18 @@
 }
 .bubble.hidden { opacity: 0; transform: translateX(-50%) scale(.92) translateY(4px); pointer-events: none; }
 .pet.panel-open .bubble { opacity: 0; transform: translateX(-50%) scale(.94) translateY(6px); pointer-events: none; }
-.pet.no-anim .bob, .pet.no-anim .hop.jump, .pet.no-anim .zz { animation: none !important; }
+.pet.no-anim .bob, .pet.no-anim .hop.jump, .pet.no-anim .zz,
+.pet.no-anim .sprite.pet-squish { animation: none !important; }
+.pet.no-anim .bubble, .pet.no-bubble-anim .bubble { transition: none !important; }
+.pet.no-anim .bubble .dots i, .pet.no-bubble-anim .bubble .dots i { animation: none !important; opacity: 1; }
+.pet.no-float .bob:not(.anim-typing):not(.anim-panic), .pet.no-float .hop.jump { animation: none !important; }
+.sprite.pet-squish { animation: cp-squish .32s cubic-bezier(.3, .7, .4, 1); }
+@keyframes cp-squish {
+  0% { transform: scale(1, 1); }
+  30% { transform: scale(1.08, .9); }
+  62% { transform: scale(.97, 1.04); }
+  100% { transform: scale(1, 1); }
+}
 .bubble::after, .bubble::before {
   content: ""; position: absolute; left: 50%; border-style: solid;
 }
@@ -322,6 +360,16 @@
 .set-label { font-size: 11.5px; font-weight: 700; color: #5c4632; }
 .set-hint { margin-top: 2px; font-size: 9.5px; line-height: 1.35; color: #a08a76; }
 .set-control { flex: none; }
+.set-controls { display: flex; align-items: center; gap: 8px; flex: none; }
+.set-sub { margin: 0 0 0 4px; padding-left: 10px; border-left: 2px solid rgba(232,116,59,.18); }
+.set-sub .set-row { padding: 7px 0; }
+.mini-btn {
+  border: 1px solid rgba(232,116,59,.45); background: #fff8f0; color: #a05a30;
+  border-radius: 8px; padding: 4px 8px; font: inherit; font-size: 10px;
+  cursor: pointer; white-space: nowrap;
+}
+.mini-btn:hover { background: #ffeede; border-color: #e8743b; }
+.switch:disabled { opacity: .45; cursor: not-allowed; }
 .seg { display: flex; gap: 5px; margin-top: 7px; }
 .seg button {
   flex: 1; min-width: 0; border: 1px solid rgba(232,116,59,.45); background: #fff8f0;
@@ -395,7 +443,7 @@
 
   function build() {
     var host = document.createElement('div')
-    host.id = 'dsh-claude-pet-host'
+    host.id = 'dsh-widget-pet-host'
     host.style.cssText = 'position:fixed;left:0;top:0;width:0;height:0;z-index:2147483000;pointer-events:none;'
     document.body.appendChild(host)
     var shadow = host.attachShadow({ mode: 'open' })
@@ -555,7 +603,8 @@
 
     el.sprite.addEventListener('click', function (e) {
       if (state.moved) { e.stopPropagation(); return }
-      togglePanel()
+      petSquish()
+      if (settings.clickPanel) togglePanel()
     })
     el.sprite.addEventListener('contextmenu', function (e) {
       e.preventDefault()
@@ -588,23 +637,69 @@
         applyAnimationSetting()
         renderPanel()
       }
+      if (act === 'set-sound') {
+        settings.sound = !settings.sound
+        saveSettings()
+        renderPanel()
+      }
+      if (act === 'set-float') {
+        settings.floatAnim = !settings.floatAnim
+        saveSettings()
+        applyAnimationSetting()
+        renderPanel()
+      }
+      if (act === 'set-pet') {
+        settings.petAnim = !settings.petAnim
+        saveSettings()
+        applyAnimationSetting()
+        renderPanel()
+      }
+      if (act === 'set-bubble-anim') {
+        settings.bubbleAnim = !settings.bubbleAnim
+        saveSettings()
+        applyAnimationSetting()
+        renderPanel()
+      }
+      if (act === 'set-font') {
+        settings.font = t.getAttribute('data-value') === 'smiley' ? 'smiley' : 'default'
+        saveSettings()
+        applyFontSetting()
+        renderPanel()
+      }
+      if (act === 'set-click-panel') {
+        settings.clickPanel = !settings.clickPanel
+        saveSettings()
+        renderPanel()
+      }
+      if (act === 'show-menu') {
+        var r = t.getBoundingClientRect()
+        renderMenu()
+        openMenu(r.left, r.bottom + 6)
+      }
       if (act === 'set-bubble-mode') {
-        settings.bubbleMode = t.getAttribute('data-value') === 'auto' ? 'auto' : 'always'
+        var bm = t.getAttribute('data-value')
+        settings.bubbleMode = (bm === 'auto' || bm === 'none') ? bm : 'always'
         saveSettings()
         applyBubbleSetting()
         renderPanel()
       }
       if (act === 'set-badge-mode') {
-        settings.badgeMode = t.getAttribute('data-value') === 'auto' ? 'auto' : 'always'
+        var gm = t.getAttribute('data-value')
+        settings.badgeMode = (gm === 'auto' || gm === 'none') ? gm : 'always'
         saveSettings()
         applyBadgeSetting()
         renderPanel()
       }
       if (act === 'reset-settings') {
         settings.animate = true
-        settings.bubble = true
-        settings.bubbleMode = 'always'
+        settings.floatAnim = true
+        settings.petAnim = true
+        settings.bubbleAnim = true
+        settings.sound = true
+        settings.bubbleMode = 'auto'
         settings.badgeMode = 'always'
+        settings.clickPanel = true
+        settings.font = 'smiley'
         saveSettings()
         applyDisplaySettings()
         renderPanel()
@@ -627,8 +722,6 @@
       if (act === 'detail') { closeMenu(); openPanel('main') }
       if (act === 'settings') { closeMenu(); openPanel('settings') }
       if (act === 'refresh') { closeMenu(); refreshBalance(true); loadRecords() }
-      if (act === 'bubble') { settings.bubble = !settings.bubble; saveSettings(); applyBubbleSetting(); renderMenu() }
-      if (act === 'sound') { settings.sound = !settings.sound; saveSettings(); renderMenu() }
       if (act === 'hide') {
         settings.hidden = true
         saveSettings()
@@ -674,11 +767,28 @@
 
   // ------------------------------------------------------------------ 显示设置
   function applyAnimationSetting() {
-    el.pet.classList.toggle('no-anim', !settings.animate)
+    var master = !!settings.animate
+    el.pet.classList.toggle('no-anim', !master)
+    el.pet.classList.toggle('no-float', !(master && settings.floatAnim))
+    el.pet.classList.toggle('no-bubble-anim', !(master && settings.bubbleAnim))
+  }
+
+  // 点击角色时捏一下：底部为原点做一次压缩 / 回弹（参考小鲸鱼的按压 Q 弹效果）
+  function petSquish() {
+    if (!settings.animate || !settings.petAnim) return
+    var s = el.sprite
+    s.classList.remove('pet-squish')
+    void s.offsetWidth // 重排，保证连续点击也能重播
+    s.classList.add('pet-squish')
+    if (state.squishTimer) clearTimeout(state.squishTimer)
+    state.squishTimer = setTimeout(function () {
+      s.classList.remove('pet-squish')
+      state.squishTimer = 0
+    }, 380)
   }
 
   function refreshBubbleVisibility() {
-    var hidden = !settings.bubble || state.bubbleAutoHidden
+    var hidden = settings.bubbleMode === 'none' || state.bubbleAutoHidden
     el.bubble.classList.toggle('hidden', hidden)
   }
 
@@ -688,7 +798,7 @@
 
   function scheduleBubbleHide() {
     clearBubbleTimer()
-    if (settings.bubbleMode !== 'auto' || !settings.bubble) return
+    if (settings.bubbleMode !== 'auto') return
     if (state.hovering || state.panelOpen) return
     state.bubbleHideTimer = setTimeout(function () {
       state.bubbleHideTimer = 0
@@ -699,7 +809,7 @@
   }
 
   function applyBubbleSetting() {
-    if (!settings.bubble) {
+    if (settings.bubbleMode === 'none') {
       state.bubbleAutoHidden = true
       clearBubbleTimer()
     } else if (settings.bubbleMode === 'auto') {
@@ -713,7 +823,7 @@
   }
 
   function refreshBadgeVisibility() {
-    el.badge.classList.toggle('hidden', state.badgeAutoHidden)
+    el.badge.classList.toggle('hidden', settings.badgeMode === 'none' || state.badgeAutoHidden)
   }
 
   function clearBadgeTimer() {
@@ -733,13 +843,66 @@
   }
 
   function applyBadgeSetting() {
-    state.badgeAutoHidden = false
+    if (settings.badgeMode === 'none') {
+      state.badgeAutoHidden = true
+      clearBadgeTimer()
+    } else if (settings.badgeMode === 'auto') {
+      state.badgeAutoHidden = false
+      scheduleBadgeHide()
+    } else {
+      state.badgeAutoHidden = false
+      clearBadgeTimer()
+    }
     refreshBadgeVisibility()
-    if (settings.badgeMode === 'auto') scheduleBadgeHide()
-    else clearBadgeTimer()
+  }
+
+  // 桌面端页面在 dsh-app:// 下用 @font-face URL 取字体可能被跨域/CSP 拦掉；
+  // 直接 fetch 字体二进制再注册 FontFace，走的是和 state.json 同一条桥接路径。
+  function ensureSmileyFont() {
+    if (state.fontFacePromise) return state.fontFacePromise
+    if (typeof FontFace !== 'function' || !document.fonts || typeof document.fonts.add !== 'function') {
+      return Promise.resolve(null)
+    }
+    state.fontFacePromise = fetch(API + '/font/smiley-sans.ttf', {
+      credentials: 'same-origin',
+      cache: 'force-cache',
+    })
+      .then(function (r) {
+        if (!r.ok) throw new Error('HTTP ' + r.status)
+        return r.arrayBuffer()
+      })
+      .then(function (buffer) {
+        var face = new FontFace('SmileySans', buffer, { style: 'normal', weight: '400' })
+        return face.load().then(function (loaded) {
+          document.fonts.add(loaded)
+          state.fontFaceReady = true
+          return loaded
+        })
+      })
+      .catch(function (err) {
+        state.fontFaceError = String((err && err.message) || err)
+        try {
+          console.warn('[dsh-widget-pet] Smiley Sans 加载失败，使用 @font-face 兜底：' + state.fontFaceError)
+        } catch (e) {}
+        return null
+      })
+    return state.fontFacePromise
+  }
+
+  function applyFontSetting() {
+    var smiley = settings.font === 'smiley'
+    el.host.classList.toggle('font-smiley', smiley)
+    // 同时写行内样式：不依赖 :host() 选择器，旧版 Chromium / 自定义协议下也稳。
+    var family = smiley
+      ? '"SmileySans", -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei UI", "PingFang SC", sans-serif'
+      : ''
+    el.pet.style.fontFamily = family
+    if (el.menu) el.menu.style.fontFamily = family
+    if (smiley) ensureSmileyFont()
   }
 
   function applyDisplaySettings() {
+    applyFontSetting()
     applyAnimationSetting()
     applyBubbleSetting()
     applyBadgeSetting()
@@ -749,7 +912,7 @@
   function onHoverEnter() {
     state.hovering = true
     if (state.hoverOutTimer) { clearTimeout(state.hoverOutTimer); state.hoverOutTimer = 0 }
-    if (settings.bubble && settings.bubbleMode === 'auto') {
+    if (settings.bubbleMode === 'auto') {
       state.bubbleAutoHidden = false
       clearBubbleTimer()
       refreshBubbleVisibility()
@@ -766,7 +929,7 @@
     state.hoverOutTimer = setTimeout(function () {
       state.hoverOutTimer = 0
       state.hovering = false
-      if (settings.bubble && settings.bubbleMode === 'auto') {
+      if (settings.bubbleMode === 'auto') {
         state.bubbleAutoHidden = true
         clearBubbleTimer()
         refreshBubbleVisibility()
@@ -901,28 +1064,56 @@
       '</div></div>'
 
     html += '<div class="set-row flex">' +
-      '<div class="set-text"><div class="set-label">启用人物动画</div>' +
-      '<div class="set-hint">关闭后角色不再上下浮动</div></div>' +
-      '<button class="switch' + (settings.animate ? ' on' : '') + '" data-act="set-animate" ' +
-        'role="switch" aria-checked="' + (settings.animate ? 'true' : 'false') + '" ' +
-        'title="' + (settings.animate ? '关闭人物动画' : '启用人物动画') + '"><span class="knob"></span></button>' +
+      '<div class="set-text"><div class="set-label">启用动画</div></div>' +
+      '<div class="set-controls">' +
+        '<button class="mini-btn" data-act="show-menu">显示与大小</button>' +
+        switchButton('set-animate', settings.animate, false, settings.animate ? '关闭动画' : '启用动画') +
+      '</div>' +
+    '</div>'
+
+    html += '<div class="set-sub">' +
+      subSwitchRow('启用角色悬浮动画', 'set-float', settings.floatAnim, !settings.animate) +
+      subSwitchRow('启用角色捏捏动画', 'set-pet', settings.petAnim, !settings.animate) +
+      subSwitchRow('启用对话框动画', 'set-bubble-anim', settings.bubbleAnim, !settings.animate) +
+    '</div>'
+
+    html += '<div class="set-row flex">' +
+      '<div class="set-text"><div class="set-label">提示音</div>' +
+      '<div class="set-hint">完成 / 出错 / 等待回答或授权时播放</div></div>' +
+      switchButton('set-sound', settings.sound, false, settings.sound ? '关闭提示音' : '启用提示音') +
     '</div>'
 
     html += '<div class="set-row">' +
       '<div class="set-label">对话框显示方式</div>' +
-      '<div class="set-hint">自动模式：显示 5 秒后收起；悬停角色可再次显示</div>' +
+      '<div class="set-hint">自动模式：新对话显示 5 秒后收起；悬停角色可再次显示</div>' +
       '<div class="seg">' +
+        segButton('set-bubble-mode', 'auto', '自动', settings.bubbleMode === 'auto') +
+        segButton('set-bubble-mode', 'none', '不显示', settings.bubbleMode === 'none') +
         segButton('set-bubble-mode', 'always', '一直显示', settings.bubbleMode === 'always') +
-        segButton('set-bubble-mode', 'auto', '5 秒后隐藏', settings.bubbleMode === 'auto') +
       '</div></div>'
 
     html += '<div class="set-row">' +
-      '<div class="set-label">余额用量显示方式</div>' +
+      '<div class="set-label">余额用量气泡显示方式</div>' +
       '<div class="set-hint">自动模式：余额或今日已用变化时显示 5 秒；悬停角色可再次显示</div>' +
       '<div class="seg">' +
+        segButton('set-badge-mode', 'auto', '自动', settings.badgeMode === 'auto') +
+        segButton('set-badge-mode', 'none', '不显示', settings.badgeMode === 'none') +
         segButton('set-badge-mode', 'always', '一直显示', settings.badgeMode === 'always') +
-        segButton('set-badge-mode', 'auto', '余额变化时显示', settings.badgeMode === 'auto') +
       '</div></div>'
+
+    html += '<div class="set-row">' +
+      '<div class="set-label">字体</div>' +
+      '<div class="set-hint">GitHub@atelier-anchor/smiley-sans 得意黑v2.0.1</div>' +
+      '<div class="seg">' +
+        segButton('set-font', 'default', '默认字体', settings.font === 'default') +
+        segButton('set-font', 'smiley', '得意黑', settings.font === 'smiley') +
+      '</div></div>'
+
+    html += '<div class="set-row flex">' +
+      '<div class="set-text"><div class="set-label">点击角色显示余额与用量窗口</div></div>' +
+      switchButton('set-click-panel', settings.clickPanel, false,
+        settings.clickPanel ? '关闭点击角色打开窗口' : '启用点击角色打开窗口') +
+    '</div>'
 
     html += '<div class="set-footer"><span class="panel-note">设置只保存在本机</span>' +
       '<button class="btn" data-act="reset-settings">恢复默认</button></div>'
@@ -932,6 +1123,19 @@
   function segButton(act, value, label, on) {
     return '<button data-act="' + act + '" data-value="' + value + '" class="' + (on ? 'on' : '') + '">' +
       esc(label) + '</button>'
+  }
+
+  function switchButton(act, on, disabled, title) {
+    return '<button class="switch' + (on ? ' on' : '') + '" data-act="' + act + '" ' +
+      'role="switch" aria-checked="' + (on ? 'true' : 'false') + '"' + (disabled ? ' disabled' : '') +
+      ' title="' + esc(title) + '"><span class="knob"></span></button>'
+  }
+
+  function subSwitchRow(label, act, on, disabled) {
+    return '<div class="set-row flex">' +
+      '<div class="set-text"><div class="set-label">' + esc(label) + '</div></div>' +
+      switchButton(act, on, disabled, label) +
+    '</div>'
   }
 
   function row(k, v) {
@@ -963,8 +1167,6 @@
         '<button data-size="medium" data-on="' + (settings.size === 'medium' ? 1 : 0) + '">中</button>' +
         '<button data-size="large" data-on="' + (settings.size === 'large' ? 1 : 0) + '">大</button>' +
       '</div>' +
-      '<button data-act="bubble" data-on="' + (settings.bubble ? 1 : 0) + '"><span>显示气泡</span><span class="check">✓</span></button>' +
-      '<button data-act="sound" data-on="' + (settings.sound ? 1 : 0) + '"><span>提示音</span><span class="check">✓</span></button>' +
       '<div class="sep"></div>' +
       '<button data-act="hide"><span>隐藏桌宠</span><span>—</span></button>' +
       '<div class="ver">v' + VERSION + '</div>'
@@ -1017,7 +1219,7 @@
     if ((stateChanged || textChanged) && !state.firstState) {
       if (stateChanged) hop()
       // 自动隐藏模式下，每次状态 / 台词变化都重新显示 5 秒。
-      if (settings.bubble && settings.bubbleMode === 'auto') {
+      if (settings.bubbleMode === 'auto') {
         state.bubbleAutoHidden = false
         clearBubbleTimer()
         refreshBubbleVisibility()
