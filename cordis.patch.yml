@@ -1,0 +1,16 @@
+# ============================================================================
+# dsh-claude-pet —— DSH bundle patch
+# ============================================================================
+# 插件挂载声明：DSH 启动时按 bundle 层栈叠加各插件 patch，
+# 本文件把 Claude 娘余额桌宠插入当前 profile 的配置树。
+#
+# 安装（Web profile）：
+#   dsh plugin --profile web add link:<本目录绝对路径>
+#
+# 桌面客户端（desktop profile）由应用自身的 plugin_manager 管理，
+# 详见 README 的「安装」一节。
+# ============================================================================
+
+- insert:
+    - id: dsh-claude-pet
+      name: dsh-claude-pet
