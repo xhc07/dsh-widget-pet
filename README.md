@@ -1,11 +1,12 @@
-# DSH × Claude 娘桌宠（dsh-widget-pet）
+# DSH × AI 娘桌宠（dsh-widget-pet）
 
 ![预览：余额面板与桌宠](docs/preview.png)
 
 > 预览图中的余额、对话与用量为模拟数据；挂件本体在 DSH 页面右下角。
 
-把 [Claude 娘桌宠](https://github.com/BingXing-ai/claude-desk-pet) 的立绘、状态机和气泡，移植成
-[DeepSeek Harness](https://github.com/deepseek-ai) Web 界面右下角的**余额小挂件**。
+把 [Claude 娘桌宠](https://github.com/BingXing-ai/claude-desk-pet) 的状态机和气泡，移植成
+[DeepSeek Harness](https://github.com/deepseek-ai) Web 界面右下角的**余额小挂件**；
+立绘使用上游 **AI娘立绘库** 中的 ChatGPT娘 / Claude娘 / DeepSeek娘 / Gemini娘，可在设置里切换。
 
 余额、消费记账与任务检测沿用 DSH 小鲸鱼挂件
 [DeepSeek-Balance-Whale-Widget](https://github.com/MeteorNOX/DeepSeek-Balance-Whale-Widget) 的口径：
@@ -15,6 +16,14 @@ DeepSeek 余额、今日已用、每轮消耗、峰谷定价，以及「思考 /
 ---
 
 ## 功能
+
+### 角色
+
+- 🎭 **四角色可切换**：设置 → **角色**，在 ChatGPT娘 / Claude娘 / DeepSeek娘 / Gemini娘
+  中选择；每个角色带缩略图，默认 Claude娘。切换后立绘、缩略图和隐藏后的召回头像同步更新，
+  并播放一次 Q 弹切换动画。
+- 🎨 **角色主题色**：对话框、余额徽章、面板、设置、菜单、开关、按钮、文字与图表跟随角色变色：
+  ChatGPT 白紫 / Claude 暖橙 / DeepSeek 天蓝 / Gemini 蓝紫。
 
 ### 余额与消费
 
@@ -57,15 +66,18 @@ DeepSeek 余额、今日已用、每轮消耗、峰谷定价，以及「思考 /
 - **拖动**：按住角色拖到任意位置；位置存在浏览器 `localStorage`。
 - **右键**：菜单里切换大小（小 / 中 / 大）、打开设置、刷新余额、隐藏桌宠。
 - **提示音**：一轮完成 / 出错 / 等待回答或授权时播放 `done.wav` / `error.wav`，可在设置里总开关。
-- **设置**（「余额与用量」面板右上角 ⚙，或右键菜单「设置」）：顶部有 **显示 / 声音** 两栏。
-  - 显示：启用动画（总开关）、悬浮动画、捏捏动画、对话框动画、显示与大小、对话框显示方式、余额用量气泡显示方式、字体、点击角色打开面板；
-  - 字体：默认字体 / 得意黑（内置 Smiley Sans v2.0.1，SIL OFL-1.1；默认得意黑）；得意黑下可再按「仅对话框」，只让气泡使用得意黑；
+- **设置**（「余额与用量」面板右上角 ⚙，或右键菜单「设置」）：顶部有 **角色 / 显示 / 声音** 三栏。
+  - 角色：ChatGPT娘 / Claude娘 / DeepSeek娘 / Gemini娘，带缩略图；
+  - 显示：启用动画（总开关）、角色切换动画、悬浮动画、捏捏动画、对话框动画、显示与大小、对话框显示方式、余额用量气泡显示方式、字体、点击角色打开面板；
+  - 字体：默认字体 / 得意黑（内置 Smiley Sans v2.0.1，SIL OFL-1.1；默认得意黑）；「仅对话框」默认开启，只让气泡使用得意黑，面板与设置保持系统字体；
   - 声音：提示音总开关；其下可分别开关「完成 / 出错 / 等待回答提示音」和「捏捏提示音」；
   - 对话框显示方式：自动（新对话显示 5 秒后收起）/ 不显示 / 一直显示，默认自动；
   - 余额用量气泡显示方式：自动（余额或今日已用变化时显示 5 秒）/ 不显示 / 一直显示；
   - 点击角色显示余额与用量窗口：关闭后点角色不再打开面板，仍可点余额徽章或右键菜单打开。
 - 隐藏后右下角留一个圆形头像按钮，点一下召回。
 
+![角色设置](docs/settings-character.png)
+![四角色主题色](docs/themes.png)
 ![显示设置](docs/settings.png)
 ![声音设置](docs/settings-sound.png)
 
@@ -173,7 +185,7 @@ dsh-widget-pet/
 │   └── accounting.mjs        # 记账内核（定点金额 + 余额观测账本，来自小鲸鱼挂件，MIT）
 ├── assets/
 │   ├── claude-pet.js         # 前端挂件：立绘动画、气泡、面板、菜单、音效
-│   ├── sprites/*.png         # 10 张立绘（来自 claude-desk-pet）
+│   ├── sprites/<角色>/       # 4 角色 × 9 状态图 + thumb.png（来自 AI娘立绘库，≤400p）
 │   ├── sounds/               # done / error（claude-desk-pet）、pinch.mp3（小鲸鱼挂件按压声）
 │   └── fonts/                # 得意黑 Smiley Sans v2.0.1（OFL-1.1）
 ├── docs/*.png                # README 展示图（余额面板 / 设置页）
@@ -201,18 +213,21 @@ node dev/preview-server.mjs 51977
 
 ### 换立绘 / 改台词
 
-- 立绘：替换 `assets/sprites/` 下同名 PNG（透明背景，建议 292×400），文件名保持不变；
+- 立绘：替换 `assets/sprites/<角色>/` 下同名 PNG（透明背景，最长边 ≤400px），文件名保持不变；
+  角色切换的缩略图是对应目录的 `thumb.png`；
 - 字体：可替换 `assets/fonts/SmileySans-Oblique.ttf`；字体设置里的「得意黑」始终读取这个文件；
 - 台词：改 `lib/index.js` 里的 `setPet(...)` 文案与 `describeTool()`；
 - 提示音：替换 `assets/sounds/done.wav` / `error.wav`。
 
 ---
 
-## 与两个原项目的关系
+## 与上游项目的关系
 
-- **立绘、状态机、气泡与提示音**来自 [claude-desk-pet](https://github.com/BingXing-ai/claude-desk-pet)
+- **状态机、气泡与提示音**来自 [claude-desk-pet](https://github.com/BingXing-ai/claude-desk-pet)
   （Python 桌面悬浮窗 + Claude Code hook）。本移植把 Python 悬浮窗换成 DSH 页面内挂件，
   把 Claude Code hook 换成 DSH 的 `session/event`。
+- **ChatGPT娘 / Claude娘 / DeepSeek娘 / Gemini娘立绘**来自上游 **AI娘立绘库**；
+  每个角色只取状态机需要的 9 张并缩放到 ≤400px，未加入额外表情或大图。
 - **余额、记账、峰谷定价与「每轮消耗」口径**来自
   [DeepSeek-Balance-Whale-Widget](https://github.com/MeteorNOX/DeepSeek-Balance-Whale-Widget)
   0.4.2 的 `accounting.mjs` 与宿主实现（MIT）；立绘 / 动图没有使用小鲸鱼素材，只有捏捏音效
@@ -220,7 +235,7 @@ node dev/preview-server.mjs 51977
 - **得意黑（Smiley Sans v2.0.1）** 来自
   [atelier-anchor/smiley-sans](https://github.com/atelier-anchor/smiley-sans)，按 **SIL Open Font License 1.1** 随插件分发；
   完整许可与版权声明见 `assets/fonts/README.md` 及上游仓库。
-- 这是个人粉丝作品，与 Anthropic、DeepSeek 官方无关。
+- 这是个人粉丝作品，与 OpenAI、Anthropic、DeepSeek、Google 官方无关。
 
 ## 许可
 
