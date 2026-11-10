@@ -10,7 +10,7 @@
 |---|---|---|
 | `lib/index.js`、`assets/claude-pet.js`、`cordis.patch.yml`、`package.json`、README、dev 脚本 | 本移植新增 | MIT |
 | `lib/accounting.mjs` | 复制自 DeepSeek-Balance-Whale-Widget 0.4.2 的 `lib/accounting.mjs` | MIT；未改动逻辑，仅随本包分发 |
-| `assets/sprites/{chatgpt,claude,deepseek,gemini}/` | 从上游 **AI娘立绘库** 中每个角色选取状态机所需的 9 张，缩放到最长边 ≤400px，并用英文状态名重命名；`thumb.png` 为对应站立图上半身裁切 | 授权随上游立绘项目；本移植只做筛选、缩放、裁切与重命名，未加入额外表情 / 大图 |
+| `assets/sprites/{chatgpt,claude,deepseek,gemini}/` | 从上游 **AI娘立绘库** 中每个角色选取 15 张状态图（含 greeting / question / approval / leave / comfort / bye），缩放到最长边 ≤400px，并用英文状态名重命名；`thumb.png` 为对应站立图上半身裁切 | 授权随上游立绘项目；本移植只做筛选、缩放、裁切与重命名，未加入其他额外表情 / 大图 |
 | `assets/sounds/done.wav`、`error.wav` | 复制自 claude-desk-pet 的 `sounds/` | 原仓库 MIT |
 | `assets/sounds/pinch.mp3` | 复制自 DeepSeek-Balance-Whale-Widget 0.4.2 的 `assets/Ya1.mp3`（默认「小黄鸭」按压声） | 按原项目说明「原样提供」，不适用 MIT；仅用于捏捏音效 |
 | `assets/fonts/SmileySans-Oblique.ttf` | Smiley Sans v2.0.1（得意黑），来自 [atelier-anchor/smiley-sans](https://github.com/atelier-anchor/smiley-sans) | **SIL Open Font License 1.1**，不适用本包的 MIT；详见 `assets/fonts/README.md` |

@@ -1,6 +1,6 @@
 {
   "name": "dsh-widget-pet",
-  "version": "2.0.1-beta",
+  "version": "2.0.9",
   "description": "DSH Web 界面右下角的 AI 娘余额桌宠：ChatGPT / Claude / DeepSeek / Gemini 四角色可切换，显示 DeepSeek 余额、今日已用、每轮消耗、峰谷时段，以及思考/读文件/跑命令/等你回答/等你授权/出错/打断/石化等任务状态",
   "keywords": [
     "dsh",
@@ -31,3 +31,4 @@
   },
   "license": "MIT"
 }
+
