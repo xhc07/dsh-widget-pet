@@ -14,7 +14,7 @@
   window.__dshWidgetPet = true
 
   var API = '/dsh-widget-pet'
-  var VERSION = '2.0.9'
+  var VERSION = '2.1.3'
   var CHARACTERS = [
     { id: 'chatgpt', name: 'ChatGPT娘' },
     { id: 'claude', name: 'Claude娘' },
@@ -60,9 +60,12 @@
   var AUTO_HIDE_MS = 5000
 
   var defaults = {
-    size: 'medium', sound: true, eventSound: true, pinchSound: true, hidden: false,
+    size: 'medium', sound: true, eventSound: true, doneSound: true, errorSound: true, waitSound: true,
+    pinchSound: true, pinchMode: 'smart', hidden: false,
     animate: true, switchAnim: true, floatAnim: true, petAnim: true, bubbleAnim: true,
     openingAnim: true, openingPop: true, openingSway: true,
+    toolDesc: true, bubbleEllipsis: true,
+    dotsAnim: true, toolDots: true, readingDots: true,
     bubbleMode: 'auto', bubbleDuration: 5, greetingDuration: 10, greetingDurationVersion: 1,
     peakReminder: true, peakReminderDuration: 10,
     badgeMode: 'always', clickPanel: true,
@@ -73,7 +76,11 @@
   if (!SIZES[settings.size]) settings.size = 'medium'
   if (typeof settings.sound !== 'boolean') settings.sound = true
   if (typeof settings.eventSound !== 'boolean') settings.eventSound = true
+  if (typeof settings.doneSound !== 'boolean') settings.doneSound = true
+  if (typeof settings.errorSound !== 'boolean') settings.errorSound = true
+  if (typeof settings.waitSound !== 'boolean') settings.waitSound = true
   if (typeof settings.pinchSound !== 'boolean') settings.pinchSound = true
+  if (['smart', 'classic', 'puff', 'random', 'single'].indexOf(settings.pinchMode) === -1) settings.pinchMode = 'smart'
   if (typeof settings.hidden !== 'boolean') settings.hidden = false
   if (typeof settings.animate !== 'boolean') settings.animate = true
   if (typeof settings.switchAnim !== 'boolean') settings.switchAnim = true
@@ -83,6 +90,11 @@
   if (typeof settings.openingAnim !== 'boolean') settings.openingAnim = true
   if (typeof settings.openingPop !== 'boolean') settings.openingPop = true
   if (typeof settings.openingSway !== 'boolean') settings.openingSway = true
+  if (typeof settings.toolDesc !== 'boolean') settings.toolDesc = true
+  if (typeof settings.bubbleEllipsis !== 'boolean') settings.bubbleEllipsis = true
+  if (typeof settings.dotsAnim !== 'boolean') settings.dotsAnim = true
+  if (typeof settings.toolDots !== 'boolean') settings.toolDots = true
+  if (typeof settings.readingDots !== 'boolean') settings.readingDots = true
   if (typeof settings.peakReminder !== 'boolean') settings.peakReminder = true
   settings.peakReminderDuration = Math.max(0, Math.min(16, Number(settings.peakReminderDuration) || 10))
   if (typeof settings.clickPanel !== 'boolean') settings.clickPanel = true
@@ -133,6 +145,9 @@
     settingsTab: 'character',
     animationExpanded: false,
     openingExpanded: false,
+    dialogExpanded: false,
+    dotsExpanded: false,
+    eventSoundExpanded: false,
     reminderExpanded: false,
     menuOpen: false,
     costTimer: 0,
@@ -160,6 +175,10 @@
     price: null,
     peakBannerUntil: 0,
     peakTimer: 0,
+    pressStartedAt: 0,
+    pinchBurstAt: 0,
+    pinchBurstCount: 0,
+    pinchBurstYa3: false,
     peakHover: false,
     peakAbsoluteUntil: 0,
     peakTicker: 0,
@@ -359,8 +378,11 @@
   filter: drop-shadow(0 8px 12px rgba(var(--shadow-rgb), .22));
   -webkit-user-drag: none; cursor: grab; pointer-events: auto;
   touch-action: none; transform-origin: 50% 100%;
+  transition: transform .18s cubic-bezier(.2, .9, .3, 1.15);
 }
 .sprite:active { cursor: grabbing; }
+.pet.pinching .bob { animation: none !important; }
+.sprite.pet-press { transform: scale(1.12, .78); transition-duration: .09s; }
 .shadow {
   position: absolute; left: 50%; bottom: 3px; width: 62%; height: 13px;
   transform: translateX(-50%); border-radius: 50%;
@@ -448,6 +470,7 @@
   100% { transform: rotate(0); }
 }
 .pet.greeting .zz { opacity: 0; }
+.pet[data-character="gemini"] .zz { display: none; }
 .pet.leave-grief .bob { animation: cp-grief-float 1.5s cubic-bezier(.3, .7, .4, 1) 1 forwards; }
 @keyframes cp-grief-float {
   0% { transform: translateY(0); }
@@ -650,13 +673,30 @@
 .mini-btn.on { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 700; }
 .mini-btn:disabled { opacity: .42; cursor: not-allowed; }
 .mini-btn:disabled:hover { background: var(--surface-soft); border-color: rgba(var(--accent-rgb),.45); }
-.switch:disabled { opacity: .45; cursor: not-allowed; }
+.mini-select {
+  height: 23px; max-width: 68px; padding: 0 3px;
+  border: 1px solid rgba(var(--accent-rgb), .45); border-radius: 7px;
+  background: var(--surface-soft); color: var(--accent-strong);
+  font: inherit; font-size: 9.5px; font-weight: 700; cursor: pointer;
+}
+.mini-select:disabled { opacity: .5; cursor: not-allowed; }
+.switch:disabled {
+  opacity: .55; cursor: not-allowed;
+  background: rgba(var(--ink-rgb), .12); border-color: rgba(var(--ink-rgb), .18);
+}
+.switch:disabled.on { background: rgba(var(--ink-rgb), .12); border-color: rgba(var(--ink-rgb), .18); }
+.switch:disabled .knob { background: #f1f1f1; }
 .collapse-label {
   display: inline-flex; align-items: center; gap: 3px;
   cursor: pointer; user-select: none;
 }
 .collapse-label:hover { color: var(--accent-strong); }
 .collapse-label .chev { font-size: 13px; color: var(--accent); line-height: 1; width: 12px; text-align: center; }
+.ellipsis-label .hover-note {
+  display: none; margin-left: 2px;
+  color: var(--ink-mid); font-size: 9.5px; font-weight: 400;
+}
+.ellipsis-label:hover .hover-note { display: inline; }
 .panel.settings-mode { width: 318px; overflow: hidden; display: none; flex-direction: column; }
 .panel.settings-mode.open { display: flex; }
 .panel.settings-mode .panel-head, .panel.settings-mode .settings-tabs { flex: none; }
@@ -892,6 +932,7 @@
 
   function applyCharacterTheme() {
     var t = THEMES[settings.character] || THEMES.claude
+    el.pet.setAttribute('data-character', settings.character)
     var s = el.host.style
     s.setProperty('--accent', t.accent)
     s.setProperty('--accent-strong', t.strong)
@@ -1015,6 +1056,8 @@
       drag = { dx: e.clientX - rect.left, dy: e.clientY - rect.top, sx: e.clientX, sy: e.clientY, moved: false }
       state.dragging = false
       state.moved = false
+      state.pressStartedAt = Date.now()
+      startPinchPress()
       try { el.sprite.setPointerCapture(e.pointerId) } catch (err) {}
       e.preventDefault()
     })
@@ -1023,6 +1066,7 @@
       if (!drag.moved && Math.abs(e.clientX - drag.sx) + Math.abs(e.clientY - drag.sy) < 4) return
       drag.moved = true
       state.dragging = true
+      endPinchPress()
       el.anchor.classList.add('moving')
       var p = clampPos(e.clientX - drag.dx, e.clientY - drag.dy)
       el.pet.style.left = p.x + 'px'
@@ -1032,6 +1076,7 @@
       if (!drag) return
       var wasMoved = drag.moved
       drag = null
+      endPinchPress()
       el.anchor.classList.remove('moving')
       if (wasMoved) {
         savePosition()
@@ -1046,7 +1091,8 @@
 
     el.sprite.addEventListener('click', function (e) {
       if (state.moved) { e.stopPropagation(); return }
-      petSquish()
+      var held = state.pressStartedAt ? Date.now() - state.pressStartedAt : 0
+      playPinch(held)
       if (settings.clickPanel) togglePanel()
     })
     el.sprite.addEventListener('contextmenu', function (e) {
@@ -1064,6 +1110,15 @@
     el.badge.addEventListener('contextmenu', function (e) {
       e.preventDefault()
       openMenu(e.clientX, e.clientY)
+    })
+
+    el.panel.addEventListener('change', function (e) {
+      var t = e.target && e.target.closest ? e.target.closest('[data-act="set-pinch-mode"]') : null
+      if (!t) return
+      var mode = String(t.value || '')
+      if (['smart', 'classic', 'puff', 'random', 'single'].indexOf(mode) === -1) return
+      settings.pinchMode = mode
+      saveSettings()
     })
 
     el.panel.addEventListener('click', function (e) {
@@ -1086,6 +1141,44 @@
       }
       if (act === 'toggle-opening-group') {
         state.openingExpanded = !state.openingExpanded
+        renderPanel()
+      }
+      if (act === 'toggle-dialog-group') {
+        state.dialogExpanded = !state.dialogExpanded
+        renderPanel()
+      }
+      if (act === 'toggle-dots-group') {
+        state.dotsExpanded = !state.dotsExpanded
+        renderPanel()
+      }
+      if (act === 'set-dots-anim') {
+        settings.dotsAnim = !settings.dotsAnim
+        saveSettings()
+        renderBubbleText()
+        renderPanel()
+      }
+      if (act === 'set-tool-dots') {
+        settings.toolDots = !settings.toolDots
+        saveSettings()
+        renderBubbleText()
+        renderPanel()
+      }
+      if (act === 'set-reading-dots') {
+        settings.readingDots = !settings.readingDots
+        saveSettings()
+        renderBubbleText()
+        renderPanel()
+      }
+      if (act === 'set-tool-desc') {
+        settings.toolDesc = !settings.toolDesc
+        saveSettings()
+        renderBubbleText()
+        renderPanel()
+      }
+      if (act === 'set-bubble-ellipsis') {
+        settings.bubbleEllipsis = !settings.bubbleEllipsis
+        saveSettings()
+        renderBubbleText()
         renderPanel()
       }
       if (act === 'toggle-reminder-group') {
@@ -1145,8 +1238,27 @@
         saveSettings()
         renderPanel()
       }
+      if (act === 'toggle-event-sound-group') {
+        state.eventSoundExpanded = !state.eventSoundExpanded
+        renderPanel()
+      }
       if (act === 'set-event-sound') {
         settings.eventSound = !settings.eventSound
+        saveSettings()
+        renderPanel()
+      }
+      if (act === 'set-done-sound') {
+        settings.doneSound = !settings.doneSound
+        saveSettings()
+        renderPanel()
+      }
+      if (act === 'set-error-sound') {
+        settings.errorSound = !settings.errorSound
+        saveSettings()
+        renderPanel()
+      }
+      if (act === 'set-wait-sound') {
+        settings.waitSound = !settings.waitSound
         saveSettings()
         renderPanel()
       }
@@ -1224,9 +1336,18 @@
         settings.openingAnim = true
         settings.openingPop = true
         settings.openingSway = true
+        settings.toolDesc = true
+        settings.bubbleEllipsis = true
+        settings.dotsAnim = true
+        settings.toolDots = true
+        settings.readingDots = true
         settings.sound = true
         settings.eventSound = true
+        settings.doneSound = true
+        settings.errorSound = true
+        settings.waitSound = true
         settings.pinchSound = true
+        settings.pinchMode = 'smart'
         settings.bubbleMode = 'auto'
         settings.bubbleDuration = 5
         settings.greetingDuration = 10
@@ -1323,19 +1444,62 @@
     el.pet.classList.toggle('no-bubble-anim', !(master && settings.bubbleAnim))
   }
 
-  // 点击角色时捏一下：底部为原点做一次压缩 / 回弹（参考小鲸鱼的按压 Q 弹效果）
-  function petSquish() {
+  var PINCH_LONG_MS = 450
+  var PINCH_BURST_MS = 1200
+  var PINCH_SOUNDS = ['pinch', 'pinch2', 'pinch3']
+
+  function playPinchSequence(list) {
+    var i = 0
+    function next() {
+      if (i >= list.length) return
+      play(list[i++], 0.5, next)
+    }
+    next()
+  }
+
+  function playPinch(heldMs) {
+    if (!settings.sound || !settings.pinchSound) return
+    var now = Date.now()
+    if (now - state.pinchBurstAt > PINCH_BURST_MS) {
+      state.pinchBurstCount = 0
+      state.pinchBurstYa3 = false
+    }
+    state.pinchBurstAt = now
+    state.pinchBurstCount += 1
+    var multi = state.pinchBurstCount >= 2
+    var list = ['pinch']
+    if (settings.pinchMode === 'single') {
+      list = ['pinch']
+    } else if (settings.pinchMode === 'classic') {
+      list = ['pinch', 'pinch2']
+    } else if (settings.pinchMode === 'puff') {
+      list = ['pinch3']
+    } else if (settings.pinchMode === 'random') {
+      list = [PINCH_SOUNDS[Math.floor(Math.random() * PINCH_SOUNDS.length)]]
+    } else if (multi) {
+      if (!state.pinchBurstYa3 && Math.random() < 0.5) {
+        list = ['pinch3']
+        state.pinchBurstYa3 = true
+      } else {
+        list = ['pinch', 'pinch2']
+      }
+    } else if (heldMs >= PINCH_LONG_MS) {
+      list = ['pinch', 'pinch2']
+    }
+    if (list.length === 1) play(list[0], 0.5)
+    else playPinchSequence(list)
+  }
+
+  // 按住时保持捏扁；松手后由 .sprite 的 transition 回弹。
+  function startPinchPress() {
     if (!settings.animate || !settings.petAnim) return
-    var s = el.sprite
-    s.classList.remove('pet-squish')
-    void s.offsetWidth // 重排，保证连续点击也能重播
-    s.classList.add('pet-squish')
-    if (settings.sound && settings.pinchSound) play('pinch', 0.5)
-    if (state.squishTimer) clearTimeout(state.squishTimer)
-    state.squishTimer = setTimeout(function () {
-      s.classList.remove('pet-squish')
-      state.squishTimer = 0
-    }, 380)
+    el.pet.classList.add('pinching')
+    el.sprite.classList.add('pet-press')
+  }
+
+  function endPinchPress() {
+    el.pet.classList.remove('pinching')
+    el.sprite.classList.remove('pet-press')
   }
 
   function playCharacterSwitch() {
@@ -1801,7 +1965,7 @@
 
       html += '<div class="set-row">' +
         '<div class="set-label">打招呼动画显示时间</div>' +
-        '<div class="set-hint">“控制角色开屏动画和我来啦~对话框”</div>' +
+        '<div class="set-hint">控制角色开屏动画和「我来了~」对话框</div>' +
         '<div class="greet-range">' +
           '<input type="range" id="greetRange" class="theme-range" min="1" max="15" step="1" value="' + settings.greetingDuration +
             '" style="--fill:' + greetingFill(settings.greetingDuration) + '" aria-label="打招呼动画显示时间">' +
@@ -1810,7 +1974,7 @@
       '</div>'
 
       html += '<div class="set-row">' +
-        '<div class="set-label">对话框显示方式</div>' +
+        collapseLabel('对话框显示', 'toggle-dialog-group', state.dialogExpanded) +
         '<div class="set-hint" id="bubbleHint">' + esc(bubbleHintText(bubbleSliderValue())) + '</div>' +
         '<div class="slider-wrap"><div class="slider-line">' +
           '<span id="bubbleEndNone" class="slider-end' + (bubbleSliderValue() === 0 ? ' hot' : '') + '">不显示</span>' +
@@ -1822,6 +1986,41 @@
           '<span id="bubbleEndAlways" class="slider-end' + (bubbleSliderValue() === 16 ? ' hot' : '') + '">一直</span>' +
         '</div></div>' +
       '</div>'
+
+      if (state.dialogExpanded) {
+        html += '<div class="set-sub">' +
+          '<div class="set-row flex">' +
+            '<div class="set-text"><div class="set-label">工具描述</div>' +
+            '<div class="set-hint">Task / MCP 等工具显示描述；关闭后直接显示工具名</div></div>' +
+            switchButton('set-tool-desc', settings.toolDesc, false,
+              settings.toolDesc ? '关闭工具描述' : '启用工具描述') +
+          '</div>' +
+          '<div class="set-row flex">' +
+            '<div class="set-text">' +
+              '<div class="set-label ellipsis-label">省略过长对话框文字' +
+                '<span class="hover-note">（工具描述开启时禁用）</span>' +
+              '</div>' +
+              '<div class="set-hint">长文件名/项目名保留开头和扩展名</div>' +
+            '</div>' +
+            switchButton('set-bubble-ellipsis', settings.bubbleEllipsis, settings.toolDesc,
+              settings.toolDesc ? '工具描述开启时不可用' : '切换气泡文字中间省略') +
+          '</div>' +
+          '<div class="set-row flex">' +
+            '<div class="set-text">' +
+              collapseLabel('工具状态循环动画', 'toggle-dots-group', state.dotsExpanded) +
+              '<div class="set-hint">开启后工具/阅读状态的省略号循环跳动</div>' +
+            '</div>' +
+            switchButton('set-dots-anim', settings.dotsAnim, false,
+              settings.dotsAnim ? '关闭工具状态循环动画' : '启用工具状态循环动画') +
+          '</div>'
+        if (state.dotsExpanded) {
+          html += '<div class="set-sub">' +
+            subSwitchRow('工具状态循环动画“...”', 'set-tool-dots', settings.toolDots, !settings.dotsAnim) +
+            subSwitchRow('阅读状态循环动画“...”', 'set-reading-dots', settings.readingDots, !settings.dotsAnim) +
+          '</div>'
+        }
+        html += '</div>'
+      }
 
       html += '<div class="set-row">' +
         '<div class="set-label">余额用量气泡显示方式</div>' +
@@ -1888,8 +2087,36 @@
       '</div>'
 
       html += '<div class="set-sub">' +
-        subSwitchRow('完成 / 出错 / 等待回答提示音', 'set-event-sound', settings.eventSound, !settings.sound) +
-        subSwitchRow('捏捏提示音', 'set-pinch-sound', settings.pinchSound, !settings.sound) +
+        '<div class="set-row flex">' +
+          '<div class="set-text">' +
+            collapseLabel('完成 / 出错 / 等待回答提示音', 'toggle-event-sound-group', state.eventSoundExpanded) +
+          '</div>' +
+          switchButton('set-event-sound', settings.eventSound, !settings.sound,
+            settings.eventSound ? '关闭完成 / 出错 / 等待回答提示音' : '启用完成 / 出错 / 等待回答提示音') +
+        '</div>'
+      if (state.eventSoundExpanded) {
+        html += '<div class="set-sub">' +
+          subSwitchRow('完成提示音', 'set-done-sound', settings.doneSound, !settings.sound || !settings.eventSound) +
+          subSwitchRow('出错提示音', 'set-error-sound', settings.errorSound, !settings.sound || !settings.eventSound) +
+          subSwitchRow('等待回答提示音', 'set-wait-sound', settings.waitSound, !settings.sound || !settings.eventSound) +
+        '</div>'
+      }
+      html += '<div class="set-row flex">' +
+        '<div class="set-text"><div class="set-label">捏捏提示音</div>' +
+        '<div class="set-hint">智能：短按单声；长按或连续点击组合</div></div>' +
+        '<div class="set-controls">' +
+          '<select class="mini-select" data-act="set-pinch-mode" aria-label="捏捏音效"' +
+            (settings.sound && settings.pinchSound ? '' : ' disabled') + '>' +
+            '<option value="smart"' + (settings.pinchMode === 'smart' ? ' selected' : '') + '>智能</option>' +
+            '<option value="classic"' + (settings.pinchMode === 'classic' ? ' selected' : '') + '>经典</option>' +
+            '<option value="puff"' + (settings.pinchMode === 'puff' ? ' selected' : '') + '>噗呲</option>' +
+            '<option value="random"' + (settings.pinchMode === 'random' ? ' selected' : '') + '>随机</option>' +
+            '<option value="single"' + (settings.pinchMode === 'single' ? ' selected' : '') + '>仅单次</option>' +
+          '</select>' +
+          switchButton('set-pinch-sound', settings.pinchSound, !settings.sound,
+            settings.pinchSound ? '关闭捏捏提示音' : '启用捏捏提示音') +
+        '</div>' +
+      '</div>' +
       '</div>'
     }
 
@@ -2225,6 +2452,34 @@
     renderBubbleText()
   }
 
+  function charUnits(ch) {
+    return /[\u3000-\u9fff\uff00-\uffef]/.test(ch) ? 2 : 1
+  }
+
+  function textUnits(text) {
+    var n = 0
+    Array.from(String(text || '')).forEach(function (ch) { n += charUnits(ch) })
+    return n
+  }
+
+  // 长文件名/项目名从中间省略，保留开头和扩展名（或末尾 4 个字符）。
+  function fitMiddleText(text) {
+    var maxUnits = 30
+    if (textUnits(text) <= maxUnits) return text
+    var chars = Array.from(text)
+    var m = String(text).match(/(\.[A-Za-z0-9_-]{1,8})$/)
+    var ext = m ? m[1] : ''
+    var tail = ext || chars.slice(-4).join('')
+    var budget = maxUnits - textUnits(tail) - 1
+    var head = ''
+    for (var i = 0; i < chars.length; i++) {
+      if (textUnits(head + chars[i]) > budget) break
+      head += chars[i]
+    }
+    if (!head) head = chars[0] || ''
+    return head + '…' + tail
+  }
+
   function renderBubbleText() {
     var peakLine = peakReminderLineHtml()
     if (state.greeting) {
@@ -2233,9 +2488,17 @@
       return
     }
     var act = state.activity || {}
-    var text = String(act.text || '')
+    var raw = String(act.rawText || '')
+    var text = settings.toolDesc ? String(act.text || '') : (raw || String(act.text || ''))
     // 初始等待态使用待机台词；轮次结束后的「轮到你啦！」保持不变。
-    if (act.state === 'waiting' && text === '我来啦～') text = 'Hi!我是' + characterName()
+    if (act.state === 'waiting' && (text === '我来啦～' || raw === '我来啦～')) {
+      text = 'Hi!我是' + characterName()
+    }
+    if (settings.bubbleEllipsis && !settings.toolDesc) text = fitMiddleText(text)
+    var dotsOn = act.state === 'thinking' ||
+      (settings.dotsAnim && act.state === 'tool' && settings.toolDots) ||
+      (settings.dotsAnim && act.state === 'reading' && settings.readingDots)
+    if (dotsOn) text = text.replace(/(…|\.\.\.)$/, '')
     // 非「一直」的提醒在开屏结束/待机前单独显示，之后再恢复 Hi 或当前台词。
     if (peakLine && Number(settings.peakReminderDuration) !== 16 &&
         state.peakBannerUntil > Date.now()) {
@@ -2244,7 +2507,7 @@
       return
     }
     el.bubbleText.innerHTML = esc(text) + peakLine
-    el.dots.style.display = (act.state === 'thinking' && /中$/.test(text)) ? 'inline-block' : 'none'
+    el.dots.style.display = dotsOn ? 'inline-block' : 'none'
   }
 
   function setActivity(act) {
@@ -2412,8 +2675,9 @@
     if (ev && ev.seq > state.lastEventSeq) {
       state.lastEventSeq = ev.seq
       if (settings.sound && settings.eventSound && !settings.hidden) {
-        if (ev.kind === 'error') play('error', 0.55)
-        else if (ev.kind === 'done' || ev.kind === 'question' || ev.kind === 'approval') play('done', ev.kind === 'done' ? 0.5 : 0.42)
+        if (ev.kind === 'error' && settings.errorSound) play('error', 0.55)
+        else if (ev.kind === 'done' && settings.doneSound) play('done', 0.5)
+        else if ((ev.kind === 'question' || ev.kind === 'approval') && settings.waitSound) play('waiting', 0.42)
       }
       if (ev.kind === 'done') {
         // 余额扣减通常落后于 turn/end，等几秒再强刷两次
@@ -2460,20 +2724,22 @@
       })
   }
 
-  function play(kind, volume) {
+  function play(kind, volume, onended) {
     try {
       var a = audio[kind]
       if (!a) {
-        // pinch 使用小鲸鱼挂件的按压 mp3，其余仍是随包的 wav
-        var ext = kind === 'pinch' ? 'mp3' : 'wav'
+        // 捏捏系列使用小鲸鱼挂件的 mp3，其余仍是随包的 wav
+        var ext = kind.indexOf('pinch') === 0 ? 'mp3' : 'wav'
         a = audio[kind] = new Audio(API + '/sound/' + kind + '.' + ext)
         a.preload = 'auto'
       }
       a.volume = Math.max(0, Math.min(1, volume == null ? 0.5 : volume))
+      a.onended = onended || null
       try { a.currentTime = 0 } catch (e) {}
       var p = a.play()
       if (p && p.catch) p.catch(function () {})
-    } catch (e) {}
+      return a
+    } catch (e) { return null }
   }
 
   // ------------------------------------------------------------------ 启动

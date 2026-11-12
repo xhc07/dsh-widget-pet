@@ -196,6 +196,25 @@ const HTML = `<!doctype html>
           if (b) b.click();
         }, 1800)
       }
+      if (q.get('dialog') === '1') {
+        setTimeout(function () {
+          var b = host.shadowRoot.querySelector('[data-act="toggle-dialog-group"]');
+          if (b) b.click();
+        }, 1700)
+      }
+      if (q.get('soundgroup') === '1') {
+        setTimeout(function () {
+          var b = host.shadowRoot.querySelector('[data-act="toggle-event-sound-group"]');
+          if (b) b.click();
+        }, 1800)
+      }
+
+      if (q.get('dots') === '1') {
+        setTimeout(function () {
+          var b = host.shadowRoot.querySelector('[data-act="toggle-dots-group"]');
+          if (b) b.click();
+        }, 1800)
+      }
       if (q.get('scroll') === '1') {
         setTimeout(function () {
           var sc = host.shadowRoot.querySelector('.settings-scroll');
@@ -293,7 +312,7 @@ const server = http.createServer((req, res) => {
     const peak = !!(s.balance && s.balance.isPeak)
     res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' })
     res.end(JSON.stringify({
-      ok: true, version: '2.0.9', isPeak: peak,
+      ok: true, version: '2.1.3', isPeak: peak,
       price: { model: 'deepseek-flash', currency: 'CNY', miss: peak ? 2 : 1, hit: peak ? 0.04 : 0.02, out: peak ? 8 : 4 },
       activity: s.activity, lastTurn: s.lastTurn, event: s.event,
       balance: s.balance, balanceError: s.balance && s.balance.ok === false ? s.balance.error : null,
