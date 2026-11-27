@@ -14,7 +14,7 @@
   window.__dshWidgetPet = true
 
   var API = '/dsh-widget-pet'
-  var VERSION = '2.1.3'
+  var VERSION = '2.2.1'
   var CHARACTERS = [
     { id: 'chatgpt', name: 'ChatGPT娘' },
     { id: 'claude', name: 'Claude娘' },
@@ -60,15 +60,21 @@
   var AUTO_HIDE_MS = 5000
 
   var defaults = {
-    size: 'medium', sound: true, eventSound: true, doneSound: true, errorSound: true, waitSound: true,
-    pinchSound: true, pinchMode: 'smart', hidden: false,
+    size: 'medium', sound: true, eventSound: true,
+    doneSound: true, errorSound: true, waitSound: true,
+    doneVolume: 100, errorVolume: 100, waitVolume: 100,
+    pinchSound: true, pinchMode: 'smart',
+    pinchCtxGreeting: true, pinchCtxIdle: true, pinchCtxWaiting: true, pinchCtxError: true,
+    pinchWake: 0, hidden: false,
     animate: true, switchAnim: true, floatAnim: true, petAnim: true, bubbleAnim: true,
     openingAnim: true, openingPop: true, openingSway: true,
     toolDesc: true, bubbleEllipsis: true,
     dotsAnim: true, toolDots: true, readingDots: true,
     bubbleMode: 'auto', bubbleDuration: 5, greetingDuration: 10, greetingDurationVersion: 1,
     peakReminder: true, peakReminderDuration: 10,
-    badgeMode: 'always', clickPanel: true,
+    peakSwitchDuration: 10, peakSwitchVersion: 1,
+    badgeMode: 'always', badgeDuration: 5, clickPanel: true,
+    usageMode: 'model', usageAll: false, chartTrigger: 'auto',
     character: 'claude',
     font: 'smiley', fontBubbleOnly: true, fontBubbleOnlyVersion: 1, fontDefaultVersion: 2,
   }
@@ -76,11 +82,22 @@
   if (!SIZES[settings.size]) settings.size = 'medium'
   if (typeof settings.sound !== 'boolean') settings.sound = true
   if (typeof settings.eventSound !== 'boolean') settings.eventSound = true
-  if (typeof settings.doneSound !== 'boolean') settings.doneSound = true
-  if (typeof settings.errorSound !== 'boolean') settings.errorSound = true
-  if (typeof settings.waitSound !== 'boolean') settings.waitSound = true
+  function normalizeSoundVolume(key, boolKey) {
+    var raw = Number(settings[key])
+    if (!Number.isFinite(raw)) raw = settings[boolKey] === false ? 1 : 100
+    settings[key] = Math.max(1, Math.min(100, Math.round(raw)))
+    settings[boolKey] = true
+  }
+  normalizeSoundVolume('doneVolume', 'doneSound')
+  normalizeSoundVolume('errorVolume', 'errorSound')
+  normalizeSoundVolume('waitVolume', 'waitSound')
   if (typeof settings.pinchSound !== 'boolean') settings.pinchSound = true
   if (['smart', 'classic', 'puff', 'random', 'single'].indexOf(settings.pinchMode) === -1) settings.pinchMode = 'smart'
+  if (typeof settings.pinchCtxGreeting !== 'boolean') settings.pinchCtxGreeting = true
+  if (typeof settings.pinchCtxIdle !== 'boolean') settings.pinchCtxIdle = true
+  if (typeof settings.pinchCtxWaiting !== 'boolean') settings.pinchCtxWaiting = true
+  if (typeof settings.pinchCtxError !== 'boolean') settings.pinchCtxError = true
+  settings.pinchWake = Math.max(0, Math.min(16, Number(settings.pinchWake) || 0))
   if (typeof settings.hidden !== 'boolean') settings.hidden = false
   if (typeof settings.animate !== 'boolean') settings.animate = true
   if (typeof settings.switchAnim !== 'boolean') settings.switchAnim = true
@@ -97,6 +114,14 @@
   if (typeof settings.readingDots !== 'boolean') settings.readingDots = true
   if (typeof settings.peakReminder !== 'boolean') settings.peakReminder = true
   settings.peakReminderDuration = Math.max(0, Math.min(16, Number(settings.peakReminderDuration) || 10))
+  var peakSwitchRaw = Number(settings.peakSwitchDuration)
+  settings.peakSwitchDuration = Number.isFinite(peakSwitchRaw)
+    ? Math.max(0, Math.min(16, peakSwitchRaw)) : 10
+  if (settings.peakSwitchVersion !== 1) {
+    settings.peakSwitchDuration = 10
+    settings.peakSwitchVersion = 1
+    try { localStorage.setItem(STORAGE_SETTINGS, JSON.stringify(settings)) } catch (e) {}
+  }
   if (typeof settings.clickPanel !== 'boolean') settings.clickPanel = true
   if (!CHARACTERS.some(function (c) { return c.id === settings.character })) settings.character = 'claude'
   if (typeof settings.fontBubbleOnly !== 'boolean') settings.fontBubbleOnly = true
@@ -124,6 +149,10 @@
     try { localStorage.setItem(STORAGE_SETTINGS, JSON.stringify(settings)) } catch (e) {}
   }
   if (['auto', 'none', 'always'].indexOf(settings.badgeMode) === -1) settings.badgeMode = 'always'
+  settings.badgeDuration = Math.max(1, Math.min(15, Number(settings.badgeDuration) || 5))
+  if (settings.usageMode !== 'conversation') settings.usageMode = 'model'
+  if (typeof settings.usageAll !== 'boolean') settings.usageAll = false
+  if (settings.chartTrigger !== 'click') settings.chartTrigger = 'auto'
 
   var state = {
     activity: null,
@@ -147,6 +176,8 @@
     openingExpanded: false,
     dialogExpanded: false,
     dotsExpanded: false,
+    pinchExpanded: false,
+    usageExpanded: {},
     eventSoundExpanded: false,
     reminderExpanded: false,
     menuOpen: false,
@@ -175,10 +206,19 @@
     price: null,
     peakBannerUntil: 0,
     peakTimer: 0,
+    peakSwitchUntil: 0,
+    peakSwitchLock: false,
+    peakSwitchPeak: false,
+    peakSwitchTimer: 0,
     pressStartedAt: 0,
+    pinchPressed: false,
+    pinchReleaseTimer: 0,
     pinchBurstAt: 0,
     pinchBurstCount: 0,
     pinchBurstYa3: false,
+    pinchWakeUntil: 0,
+    pinchWakeLock: false,
+    pinchWakeTimer: 0,
     peakHover: false,
     peakAbsoluteUntil: 0,
     peakTicker: 0,
@@ -373,16 +413,29 @@
 .bob.anim-confetti { animation-duration: 2.2s; }
 .hop { width: 100%; height: 100%; }
 .hop.jump { animation: cp-hop .34s cubic-bezier(.3,.8,.4,1); }
+.pinch {
+  width: 100%; height: 100%;
+  transform-origin: 50% 100%;
+  transition: transform .12s cubic-bezier(.2, .7, .3, 1);
+  will-change: transform;
+}
+.pinch.pet-press { transform: scale(1.16, .74); transition-duration: .08s; }
+.pinch.pet-release { animation: cp-pinch-release .42s cubic-bezier(.2, .8, .3, 1); }
+@keyframes cp-pinch-release {
+  0% { transform: scale(1.16, .74); }
+  38% { transform: scale(.92, 1.08); }
+  62% { transform: scale(1.06, .96); }
+  82% { transform: scale(.98, 1.02); }
+  100% { transform: scale(1); }
+}
 .sprite {
   display: block; height: 100%; width: auto; margin: 0 auto;
   filter: drop-shadow(0 8px 12px rgba(var(--shadow-rgb), .22));
   -webkit-user-drag: none; cursor: grab; pointer-events: auto;
   touch-action: none; transform-origin: 50% 100%;
-  transition: transform .18s cubic-bezier(.2, .9, .3, 1.15);
 }
 .sprite:active { cursor: grabbing; }
 .pet.pinching .bob { animation: none !important; }
-.sprite.pet-press { transform: scale(1.12, .78); transition-duration: .09s; }
 .shadow {
   position: absolute; left: 50%; bottom: 3px; width: 62%; height: 13px;
   transform: translateX(-50%); border-radius: 50%;
@@ -528,6 +581,13 @@
   color: #2b2b2b; font-size: 11.5px; font-weight: 400; line-height: 1.5;
 }
 .bubble .peak-reminder-line .peak-hot { color: #e0433f; font-weight: 700; }
+.valley-hot { color: #2fa24c; font-weight: 700; }
+.bubble .peak-switch-title { display: block; font-weight: 700; line-height: 1.45; }
+.bubble .peak-switch-price {
+  display: block; margin-top: 5px; padding-top: 5px;
+  border-top: 1px dashed rgba(var(--accent-rgb), .3);
+  color: #2b2b2b; font-size: 11.5px; font-weight: 400; line-height: 1.5;
+}
 .leave-dialog {
   position: absolute; left: 50%; bottom: calc(var(--badgeH) + var(--h) + 8px);
   width: 246px; max-width: calc(100vw - 24px); padding: 12px 13px 11px;
@@ -617,20 +677,59 @@
 .row .v { color: var(--ink); font-weight: 700; text-align: right; font-variant-numeric: tabular-nums; }
 .row .v small { font-weight: 500; color: var(--muted); }
 .row.peak-row { cursor: pointer; }
-.row.peak-row .v { font-size: 10.5px; }
+/* 峰谷状态与右侧倒计时统一使用面板正文数值字号，避免倒计时被继承成更大字号。 */
+.row.peak-row .v { font-size: 12px; font-weight: 700; }
+.row.peak-row .v .peak-countdown { font-size: 11px; font-weight: 700; }
 .peak-hot { color: #e0433f; font-weight: 700; }
 .peak-cool { color: #2fa24c; font-weight: 700; }
-.peak-countdown { font-weight: 600; }
 .tag { display: inline-block; padding: 1px 6px; border-radius: 999px; font-size: 9.5px; font-weight: 600; background: rgba(var(--accent-rgb),.12); color: var(--accent-strong); margin-left: 4px; vertical-align: 1px; }
 .tag.warn { background: rgba(224,67,63,.12); color: #c0392b; }
 .section { margin-top: 10px; }
 .section-title { font-size: 10.5px; color: var(--muted); margin-bottom: 5px; display: flex; justify-content: space-between; }
-.bars { display: flex; align-items: flex-end; gap: 5px; height: 54px; padding: 2px 0 0; }
+.usage-head { align-items: center; gap: 6px; }
+.usage-seg { display: flex; align-items: center; height: 20px; border: 1px solid rgba(var(--accent-rgb), .35); border-radius: 7px; overflow: hidden; background: var(--surface-soft); }
+.usage-seg button { position: relative; z-index: 1; border: 0; background: transparent; color: var(--accent-strong); font: inherit; font-size: 8.5px; line-height: 1; padding: 3px 5px; cursor: pointer; }
+.usage-all { display: flex; align-items: center; align-self: stretch; border-radius: 0; }
+.usage-all.on { background: var(--accent); color: #fff; font-weight: 700; }
+.usage-divider { width: 1px; height: 100%; background: rgba(var(--ink-rgb), .28); flex: none; position: relative; z-index: 2; }
+.usage-modes { position: relative; display: flex; align-items: center; height: 100%; }
+.usage-modes button { height: 100%; border-radius: 0; }
+.usage-modes button.on { color: #fff; font-weight: 700; }
+.usage-slide { position: absolute; top: 0; bottom: 0; left: 0; width: 50%; border-radius: 0; background: var(--accent); transition: left .18s ease; }
+.usage-modes.conversation .usage-slide { left: 50%; }
+.usage-list { max-height: 84px; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; }
+.usage-item, .usage-child { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-width: 0; padding: 3px 0; border-bottom: 1px dashed rgba(var(--accent-rgb), .14); }
+.usage-item:last-child, .usage-child:last-child { border-bottom: 0; }
+.usage-parent { cursor: pointer; }
+.usage-parent:hover .usage-name { color: var(--accent-strong); }
+.usage-caret { display: inline-block; width: 9px; margin-right: 1px; color: var(--accent-strong); font-size: 8px; font-weight: 700; }
+.usage-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 10.5px; color: var(--ink); }
+.usage-child { padding-left: 12px; }
+.usage-child .usage-name { font-size: 9.5px; color: var(--ink-mid); }
+.usage-child .usage-cost { font-size: 9.5px; color: var(--ink-mid); }
+.usage-cost { flex: none; font-size: 10.5px; font-weight: 700; color: var(--ink); font-variant-numeric: tabular-nums; }
+.usage-empty { padding: 6px 0; font-size: 9.5px; color: var(--muted-soft); }
+.choice-frame { flex: none; display: inline-flex; align-items: stretch; border: 1px solid rgba(var(--accent-rgb), .35); border-radius: 7px; overflow: hidden; background: var(--surface-soft); }
+.choice-frame button { border: 0; background: transparent; color: var(--accent-strong); font: inherit; font-size: 9px; line-height: 1; padding: 5px 6px; cursor: pointer; white-space: nowrap; }
+.choice-frame button + button { border-left: 1px solid rgba(var(--accent-rgb), .25); }
+.choice-frame button.on { background: var(--accent); color: #fff; font-weight: 700; }
+.bars { display: flex; align-items: flex-end; gap: 5px; height: 54px; padding: 2px 0 0; position: relative; }
 .bar-col { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 3px; min-width: 0; }
 .bar-wrap { width: 100%; height: 40px; display: flex; align-items: flex-end; }
 .bar { width: 100%; border-radius: 4px 4px 2px 2px; background: linear-gradient(180deg, var(--accent-light), var(--accent)); min-height: 2px; }
 .bar.today { background: linear-gradient(180deg, var(--accent-light), var(--accent)); }
 .bar-label { font-size: 8.5px; color: var(--muted-soft); white-space: nowrap; }
+.bar-col { position: relative; cursor: pointer; }
+.bar-col.active .bar { filter: brightness(1.14); box-shadow: 0 0 0 2px rgba(var(--accent-rgb), .35); }
+.bar-tip {
+  position: absolute; left: 0; bottom: calc(100% + 6px); transform: translateX(-50%);
+  display: flex; flex-direction: column; align-items: center; gap: 1px;
+  padding: 4px 7px; border-radius: 7px; background: var(--ink); color: #fff;
+  white-space: nowrap; opacity: 0; pointer-events: none; z-index: 5;
+}
+.bar-tip.show { opacity: 1; }
+.bar-tip .tip-time { font-size: 9px; font-weight: 500; line-height: 1.2; }
+.bar-tip .tip-cost { font-size: 12px; font-weight: 700; line-height: 1.2; }
 .model-row { display: flex; justify-content: space-between; gap: 8px; padding: 2px 0; font-size: 10.5px; color: var(--ink-mid); }
 .model-row .m { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .model-row .c { color: var(--accent-strong); font-variant-numeric: tabular-nums; flex: none; }
@@ -738,6 +837,9 @@
   transition: opacity .12s ease; z-index: 3;
 }
 .slider-tip.show { opacity: 1; transform: translateX(-50%) scale(1); }
+.sound-vol { display: flex; align-items: center; gap: 6px; flex: 1; min-width: 0; max-width: 168px; }
+.sound-vol .slider-main { flex: 1; min-width: 0; }
+.sound-vol-val { flex: none; width: 34px; text-align: right; font-size: 9.5px; font-weight: 600; color: var(--ink-mid); font-variant-numeric: tabular-nums; }
 .slider-tip::after {
   content: ""; position: absolute; left: 50%; bottom: -4px; margin-left: -4px;
   border-width: 4px 4px 0 4px; border-style: solid; border-color: var(--accent) transparent transparent transparent;
@@ -756,6 +858,12 @@
 .seg button.on { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 700; }
 .seg button:disabled { opacity: .42; cursor: not-allowed; }
 .seg button:disabled:hover { background: var(--surface-soft); border-color: rgba(var(--accent-rgb),.45); }
+.pinch-settings { margin-top: 2px; }
+.pinch-ctx { gap: 4px; }
+.pinch-ctx button { font-size: 9px; padding: 4px 2px; }
+.pinch-wake-row { align-items: flex-start; }
+.pinch-wake-control { flex: 1; min-width: 0; }
+.pinch-wake-control .set-hint { margin-top: 3px; }
 .switch {
   position: relative; width: 40px; height: 22px; flex: none; padding: 0; cursor: pointer;
   border-radius: 999px; border: 1.5px solid rgba(var(--ink-rgb), .28); background: rgba(var(--ink-rgb), .14);
@@ -837,7 +945,9 @@
         '<div class="shadow"></div>' +
         '<div class="bob">' +
           '<div class="hop">' +
-            '<img class="sprite" alt="' + esc(characterName()) + '" draggable="false">' +
+            '<div class="pinch">' +
+              '<img class="sprite" alt="' + esc(characterName()) + '" draggable="false">' +
+            '</div>' +
           '</div>' +
         '</div>' +
         '<div class="zz">z Z</div>' +
@@ -875,6 +985,7 @@
     el.anchor = pet.querySelector('.anchor')
     el.bob = pet.querySelector('.bob')
     el.hop = pet.querySelector('.hop')
+    el.pinch = pet.querySelector('.pinch')
     el.sprite = pet.querySelector('.sprite')
     el.bubble = pet.querySelector('.bubble')
     el.bubbleText = pet.querySelector('.bubble .txt')
@@ -920,6 +1031,7 @@
 
   function currentSpriteKey() {
     if (state.greeting) return 'greeting'
+    if (pinchWakeActive()) return 'waiting'
     return state.overrideSprite || (state.activity && state.activity.sprite) || 'idle'
   }
 
@@ -1075,8 +1187,9 @@
     function endDrag(e) {
       if (!drag) return
       var wasMoved = drag.moved
+      var held = state.pressStartedAt ? Date.now() - state.pressStartedAt : 0
       drag = null
-      endPinchPress()
+      endPinchPress(e.type === 'pointerup' && !wasMoved, e.type === 'pointerup' && !wasMoved, held)
       el.anchor.classList.remove('moving')
       if (wasMoved) {
         savePosition()
@@ -1088,11 +1201,17 @@
     }
     el.sprite.addEventListener('pointerup', endDrag)
     el.sprite.addEventListener('pointercancel', endDrag)
+    window.addEventListener('pointerup', function (e) {
+      if (!state.pinchPressed) return
+      var held = state.pressStartedAt ? Date.now() - state.pressStartedAt : 0
+      endPinchPress(true, !state.moved, held)
+    })
+    window.addEventListener('pointercancel', function () {
+      if (state.pinchPressed) endPinchPress(false, false, 0)
+    })
 
     el.sprite.addEventListener('click', function (e) {
       if (state.moved) { e.stopPropagation(); return }
-      var held = state.pressStartedAt ? Date.now() - state.pressStartedAt : 0
-      playPinch(held)
       if (settings.clickPanel) togglePanel()
     })
     el.sprite.addEventListener('contextmenu', function (e) {
@@ -1149,6 +1268,10 @@
       }
       if (act === 'toggle-dots-group') {
         state.dotsExpanded = !state.dotsExpanded
+        renderPanel()
+      }
+      if (act === 'toggle-pinch-group') {
+        state.pinchExpanded = !state.pinchExpanded
         renderPanel()
       }
       if (act === 'set-dots-anim') {
@@ -1284,6 +1407,15 @@
         applyAnimationSetting()
         renderPanel()
       }
+      if (act === 'pinch-ctx') {
+        var ctx = t.getAttribute('data-value')
+        var ctxKey = ctx === 'greeting' ? 'pinchCtxGreeting'
+          : ctx === 'waiting' ? 'pinchCtxWaiting'
+          : ctx === 'error' ? 'pinchCtxError' : 'pinchCtxIdle'
+        settings[ctxKey] = !settings[ctxKey]
+        saveSettings()
+        renderPanel()
+      }
       if (act === 'set-bubble-anim') {
         settings.bubbleAnim = !settings.bubbleAnim
         saveSettings()
@@ -1327,6 +1459,30 @@
         applyBadgeSetting()
         renderPanel()
       }
+      if (act === 'set-chart-trigger') {
+        settings.chartTrigger = t.getAttribute('data-value') === 'click' ? 'click' : 'auto'
+        saveSettings()
+        renderPanel()
+      }
+      if (act === 'usage-all') {
+        settings.usageAll = !settings.usageAll
+        state.usageExpanded = {}
+        saveSettings()
+        renderPanel()
+      }
+      if (act === 'usage-mode') {
+        settings.usageMode = t.getAttribute('data-value') === 'conversation' ? 'conversation' : 'model'
+        state.usageExpanded = {}
+        saveSettings()
+        renderPanel()
+      }
+      if (act === 'usage-toggle') {
+        var usageKey = t.getAttribute('data-key')
+        if (usageKey) {
+          state.usageExpanded[usageKey] = !state.usageExpanded[usageKey]
+          renderPanel()
+        }
+      }
       if (act === 'reset-settings') {
         settings.animate = true
         settings.switchAnim = true
@@ -1346,16 +1502,30 @@
         settings.doneSound = true
         settings.errorSound = true
         settings.waitSound = true
+        settings.doneVolume = 100
+        settings.errorVolume = 100
+        settings.waitVolume = 100
         settings.pinchSound = true
         settings.pinchMode = 'smart'
+        settings.pinchCtxGreeting = true
+        settings.pinchCtxIdle = true
+        settings.pinchCtxWaiting = true
+        settings.pinchCtxError = true
+        settings.pinchWake = 0
         settings.bubbleMode = 'auto'
         settings.bubbleDuration = 5
         settings.greetingDuration = 10
         settings.greetingDurationVersion = 1
         settings.peakReminder = true
         settings.peakReminderDuration = 10
+        settings.peakSwitchDuration = 10
+        settings.peakSwitchVersion = 1
         settings.badgeMode = 'always'
+        settings.badgeDuration = 5
         settings.clickPanel = true
+        settings.usageMode = 'model'
+        settings.usageAll = false
+        settings.chartTrigger = 'auto'
         settings.font = 'smiley'
         settings.fontBubbleOnly = true
         settings.fontBubbleOnlyVersion = 1
@@ -1446,6 +1616,9 @@
 
   var PINCH_LONG_MS = 450
   var PINCH_BURST_MS = 1200
+  // 100% 保持 2.2.0 的播放增益不变；当前只做 1–100%，
+  // 全部低于 1.0，因此仍使用原生 audio.volume，不引入 Web Audio。
+  var EVENT_SOUND_BASE = { done: 0.5, error: 0.55, waiting: 0.42 }
   var PINCH_SOUNDS = ['pinch', 'pinch2', 'pinch3']
 
   function playPinchSequence(list) {
@@ -1490,16 +1663,93 @@
     else playPinchSequence(list)
   }
 
-  // 按住时保持捏扁；松手后由 .sprite 的 transition 回弹。
-  function startPinchPress() {
-    if (!settings.animate || !settings.petAnim) return
-    el.pet.classList.add('pinching')
-    el.sprite.classList.add('pet-press')
+  function pinchContext() {
+    if (state.greeting) return 'greeting'
+    var st = state.activity && state.activity.state
+    if (st === 'question' || st === 'approval') return 'waiting'
+    if (st === 'error' || st === 'aborted' || st === 'stone') return 'error'
+    return 'idle'
   }
 
-  function endPinchPress() {
+  function pinchAllowed() {
+    var c = pinchContext()
+    if (c === 'greeting') return !!settings.pinchCtxGreeting
+    if (c === 'waiting') return !!settings.pinchCtxWaiting
+    if (c === 'error') return !!settings.pinchCtxError
+    return !!settings.pinchCtxIdle
+  }
+
+  function pinchWakeActive() {
+    return !!state.pinchWakeLock ||
+      (!!state.pinchWakeUntil && Date.now() < state.pinchWakeUntil)
+  }
+
+  function applyPinchWakeVisual() {
+    if (!pinchWakeActive() || state.closed) return
+    el.pet.setAttribute('data-state', 'waiting')
+    var src = spriteUrl('waiting')
+    if (el.sprite.getAttribute('src') !== src) el.sprite.src = src
+    el.sprite.alt = characterName()
+    if (el.bob.className !== 'bob') el.bob.className = 'bob'
+    renderBubbleText()
+  }
+
+  function clearPinchWake(reapply) {
+    if (state.pinchWakeTimer) { clearTimeout(state.pinchWakeTimer); state.pinchWakeTimer = 0 }
+    state.pinchWakeUntil = 0
+    state.pinchWakeLock = false
+    if (reapply && state.activity && !state.closed) setActivity(state.activity)
+  }
+
+  function startPinchWake() {
+    var sec = Math.max(0, Math.min(16, Number(settings.pinchWake) || 0))
+    if (sec <= 0) return
+    if (state.pinchWakeTimer) { clearTimeout(state.pinchWakeTimer); state.pinchWakeTimer = 0 }
+    if (sec === 16) {
+      state.pinchWakeLock = true
+      state.pinchWakeUntil = 0
+    } else {
+      state.pinchWakeLock = false
+      state.pinchWakeUntil = Date.now() + sec * 1000
+      state.pinchWakeTimer = setTimeout(function () {
+        state.pinchWakeTimer = 0
+        state.pinchWakeUntil = 0
+        if (!state.closed) setActivity(state.activity)
+      }, sec * 1000)
+    }
+    applyPinchWakeVisual()
+  }
+
+  // 按住时保持捏扁；松手后播放一次 Q 弹回弹。
+  function startPinchPress() {
+    if (!settings.animate || !settings.petAnim || !pinchAllowed()) return
+    state.pinchPressed = true
+    if (state.pinchReleaseTimer) { clearTimeout(state.pinchReleaseTimer); state.pinchReleaseTimer = 0 }
+    el.pinch.classList.remove('pet-release')
+    el.pet.classList.add('pinching')
+    el.pinch.classList.add('pet-press')
+  }
+
+  function endPinchPress(animate, withSound, heldMs) {
+    if (!state.pinchPressed) return
+    state.pinchPressed = false
     el.pet.classList.remove('pinching')
-    el.sprite.classList.remove('pet-press')
+    el.pinch.classList.remove('pet-press')
+    if (animate && settings.animate && settings.petAnim) {
+      el.pinch.classList.remove('pet-release')
+      void el.pinch.offsetWidth
+      el.pinch.classList.add('pet-release')
+      if (state.pinchReleaseTimer) clearTimeout(state.pinchReleaseTimer)
+      state.pinchReleaseTimer = setTimeout(function () {
+        el.pinch.classList.remove('pet-release')
+        state.pinchReleaseTimer = 0
+      }, 430)
+    }
+    if (withSound) playPinch(heldMs)
+    if (withSound && !state.greeting) {
+      var st = state.activity && state.activity.state
+      if (['error', 'aborted', 'stone', 'idle'].indexOf(st) !== -1) startPinchWake()
+    }
   }
 
   function playCharacterSwitch() {
@@ -1517,7 +1767,7 @@
 
   function refreshBubbleVisibility() {
     // 打招呼和高峰提醒期间强制显示，不受普通对话框显示方式影响。
-    var hidden = !state.greeting && !peakReminderActive() &&
+    var hidden = !state.greeting && !peakReminderActive() && !peakSwitchActive() &&
       (settings.bubbleMode === 'none' || (state.bubbleAutoHidden && !state.notice))
     el.bubble.classList.toggle('hidden', hidden)
   }
@@ -1533,7 +1783,7 @@
   function scheduleBubbleHide() {
     clearBubbleTimer()
     if (settings.bubbleMode !== 'auto') return
-    if (state.greeting || peakReminderActive() || state.notice) return
+    if (state.greeting || peakReminderActive() || peakSwitchActive() || state.notice) return
     if (state.hovering || state.panelOpen) return
     state.bubbleHideTimer = setTimeout(function () {
       state.bubbleHideTimer = 0
@@ -1544,7 +1794,7 @@
   }
 
   function applyBubbleSetting() {
-    if (state.greeting || peakReminderActive()) {
+    if (state.greeting || peakReminderActive() || peakSwitchActive()) {
       el.bubble.classList.remove('hidden')
       return
     }
@@ -1578,7 +1828,7 @@
       if (state.hovering || state.panelOpen) return
       state.badgeAutoHidden = true
       refreshBadgeVisibility()
-    }, AUTO_HIDE_MS)
+    }, Math.max(1, Math.min(15, Number(settings.badgeDuration) || 5)) * 1000)
   }
 
   function applyBadgeSetting() {
@@ -1693,6 +1943,7 @@
   function openPanel(view) {
     state.panelOpen = true
     state.panelView = view === 'settings' ? 'settings' : 'main'
+    if (state.panelView === 'main') state.usageExpanded = {}
     el.panel.classList.add('open')
     el.pet.classList.add('panel-open')
     renderPanel()
@@ -1746,8 +1997,12 @@
     if (state.records && state.records.today && state.records.today.tokens) {
       html += row('今日Tokens', '<span style="font-size:11px">' + esc(fmtTokens(state.records.today.tokens)) + '</span>')
     }
+    if (state.activity && state.activity.sessionName) {
+      html += row('最近对话', '<span style="font-size:10.5px;max-width:170px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' +
+        esc(state.activity.sessionName) + '</span>')
+    }
     if (state.lastTurn) {
-      html += row('最近一轮', '¥' + esc(fmtMoney(state.lastTurn.amount, 4)) +
+      html += row('上轮消费', '¥' + esc(fmtMoney(state.lastTurn.amount, 4)) +
         '<small> · ' + esc(fmtTokens(state.lastTurn.tokens)) + ' tokens</small>')
       html += row('模型', '<span style="font-size:10.5px">' + esc(shortModel(state.lastTurn.model)) + '</span>')
     }
@@ -1759,10 +2014,6 @@
     if (b.updatedAt) html += row('余额更新', '<span style="font-size:10.5px">' + esc(timeText(Date.parse(b.updatedAt))) +
       (b.stale ? ' <span class="tag warn">缓存</span>' : '') + '</span>')
     if (src) html += row('数据来源', '<span style="font-size:10.5px">' + esc(src) + '</span>')
-    if (state.activity && state.activity.sessionName) {
-      html += row('当前对话', '<span style="font-size:10.5px;max-width:170px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' +
-        esc(state.activity.sessionName) + '</span>')
-    }
     html += '</div>'
 
     // 近 7 天柱状
@@ -1779,22 +2030,63 @@
         var hh = max > 0 ? Math.max(3, Math.round((val / max) * 40)) : 3
         var isToday = j === days.length - 1
         var label = String(d.date || '').slice(5)
-        html += '<div class="bar-col" title="' + esc(d.date + ' ' + moneySymbol(d.currency) + fmtMoney(val)) + '">' +
+        html += '<div class="bar-col" data-chart-index="' + j +
+          '" data-date="' + esc(d.date) + '" data-cost="' + esc(moneySymbol(d.currency) + fmtMoney(val)) + '">' +
           '<div class="bar-wrap"><div class="bar' + (isToday ? ' today' : '') + '" style="height:' + hh + 'px"></div></div>' +
           '<div class="bar-label">' + esc(label) + '</div></div>'
       }
-      html += '</div></div>'
+      html += '<div class="bar-tip chart-tip"><span class="tip-time"></span>' +
+        '<span class="tip-cost"></span></div></div></div>'
     }
 
-    if (rec && rec.today && rec.today.models && rec.today.models.length) {
-      html += '<div class="section"><div class="section-title"><span>今日模型</span><span>' +
-        esc(rec.today.models.length) + ' 个</span></div>'
-      for (var k = 0; k < rec.today.models.length; k++) {
-        var m = rec.today.models[k]
-        html += '<div class="model-row"><span class="m">' + esc(shortModel(m.model)) + '</span>' +
-          '<span class="c">¥' + esc(fmtMoney(m.cost, 4)) + '</span></div>'
+    if (rec && rec.today) {
+      var today = rec.today
+      var modelGroups = Array.isArray(today.modelGroups) ? today.modelGroups : (today.models || []).map(function (m) {
+        return { model: m.model, cost: m.cost, conversations: [] }
+      })
+      var conversationGroups = Array.isArray(today.conversationGroups) ? today.conversationGroups : []
+      var mode = settings.usageMode === 'conversation' ? 'conversation' : 'model'
+      var groups = mode === 'conversation' ? conversationGroups : modelGroups
+      html += '<div class="section"><div class="section-title usage-head"><span>详细用量</span>' +
+        '<div class="usage-seg">' +
+          '<button data-act="usage-all" class="usage-all' + (settings.usageAll ? ' on' : '') + '" aria-pressed="' +
+            (settings.usageAll ? 'true' : 'false') + '">全部</button>' +
+          '<span class="usage-divider"></span>' +
+          '<div class="usage-modes ' + mode + '">' +
+            '<span class="usage-slide"></span>' +
+            '<button data-act="usage-mode" data-value="model" class="' + (mode === 'model' ? 'on' : '') + '">按模型</button>' +
+            '<button data-act="usage-mode" data-value="conversation" class="' + (mode === 'conversation' ? 'on' : '') + '">按对话</button>' +
+          '</div>' +
+        '</div></div><div class="usage-list">'
+      if (!groups.length) {
+        html += '<div class="usage-empty">暂无明细</div>'
       }
-      html += '</div>'
+      for (var k = 0; k < groups.length; k++) {
+        var g = groups[k]
+        var name = mode === 'conversation' ? (g.name || '未记录对话') : shortModel(g.model)
+        var children = mode === 'conversation' ? (g.models || []) : (g.conversations || [])
+        var expandable = !!settings.usageAll && children.length > 0
+        var usageKey = mode + ':' + k
+        var expanded = expandable && !!state.usageExpanded[usageKey]
+        html += '<div class="usage-item' + (expandable ? ' usage-parent' : '') + '"' +
+          (expandable ? ' data-act="usage-toggle" data-key="' + esc(usageKey) +
+            '" aria-expanded="' + (expanded ? 'true' : 'false') + '"' : '') + '>' +
+          '<span class="usage-name" title="' + esc(name) + '">' +
+            (expandable ? '<span class="usage-caret">' + (expanded ? '▾' : '▸') + '</span>' : '') +
+            esc(name) + '</span>' +
+          '<span class="usage-cost">¥' + esc(fmtMoney(g.cost, 4)) + '</span></div>'
+        if (expanded) {
+          html += '<div class="usage-children">'
+          for (var ci = 0; ci < children.length; ci++) {
+            var child = children[ci]
+            var childName = mode === 'conversation' ? shortModel(child.model) : (child.name || '未记录对话')
+            html += '<div class="usage-child"><span class="usage-name" title="' + esc(childName) + '">' +
+              esc(childName) + '</span><span class="usage-cost">¥' + esc(fmtMoney(child.cost, 4)) + '</span></div>'
+          }
+          html += '</div>'
+        }
+      }
+      html += '</div></div>'
     }
 
     html += '<div class="panel-foot"><div class="panel-note">' +
@@ -1803,6 +2095,57 @@
       '<br>数据只在本机</div><button class="btn" data-act="refresh">刷新</button></div>'
     el.panel.innerHTML = html
     bindPeakRow()
+    bindChartBars()
+  }
+
+  function bindChartBars() {
+    var cols = Array.prototype.slice.call(el.panel.querySelectorAll('.bar-col'))
+    var tip = el.panel.querySelector('.chart-tip')
+    if (!cols.length) return
+    el.panel.onmousemove = null
+    el.panel.onmouseleave = null
+    function clear() {
+      for (var i = 0; i < cols.length; i++) cols[i].classList.remove('active')
+      if (tip) tip.classList.remove('show')
+    }
+    function activate(col) {
+      clear()
+      col.classList.add('active')
+      if (!tip) return
+      var time = tip.querySelector('.tip-time')
+      var cost = tip.querySelector('.tip-cost')
+      if (time) time.textContent = col.getAttribute('data-date') || ''
+      if (cost) cost.textContent = col.getAttribute('data-cost') || ''
+      var bars = tip.parentNode
+      var center = col.offsetLeft + col.offsetWidth / 2
+      var half = (tip.offsetWidth || 0) / 2
+      var width = bars ? bars.clientWidth : 0
+      if (width) center = Math.max(half + 2, Math.min(width - half - 2, center))
+      tip.style.left = center + 'px'
+      tip.classList.add('show')
+    }
+    if (settings.chartTrigger === 'click') {
+      cols.forEach(function (col) {
+        col.addEventListener('click', function () {
+          if (col.classList.contains('active')) clear()
+          else activate(col)
+        })
+      })
+    } else {
+      cols.forEach(function (col) {
+        col.addEventListener('mouseenter', function () { activate(col) })
+        col.addEventListener('mouseleave', function () {
+          if (col.classList.contains('active')) clear()
+        })
+      })
+      // 自动模式的双保险：指针离开柱形或整个面板时立即清掉高亮与气泡，
+      // 避免鼠标移出后 .active 残留。
+      el.panel.onmousemove = function (e) {
+        var target = e.target
+        if (!target || !target.closest || !target.closest('.bar-col')) clear()
+      }
+      el.panel.onmouseleave = function () { clear() }
+    }
   }
 
   function bindPeakRow() {
@@ -1886,6 +2229,40 @@
     return '高峰时段下显示 ' + v + ' 秒'
   }
 
+  function badgeSliderValue() {
+    if (settings.badgeMode === 'none') return 0
+    if (settings.badgeMode === 'always') return 16
+    return Math.max(1, Math.min(15, Number(settings.badgeDuration) || 5))
+  }
+
+  function badgeStateText(value) {
+    var v = Number(value)
+    if (v === 0) return '不显示'
+    if (v === 16) return '一直显示'
+    return '自动 · ' + v + ' 秒'
+  }
+
+  function badgeHintText(value) {
+    var v = Number(value)
+    if (v === 0) return '不显示余额用量气泡'
+    if (v === 16) return '一直显示余额用量气泡'
+    return '自动模式：余额或今日已用变化时显示 ' + v + ' 秒'
+  }
+
+  function peakSwitchStateText(value) {
+    var v = Math.max(0, Math.min(16, Number(value) || 0))
+    if (v === 0) return '不显示'
+    if (v === 16) return '一直显示'
+    return v + ' 秒'
+  }
+
+  function peakSwitchHintText(value) {
+    var v = Math.max(0, Math.min(16, Number(value) || 0))
+    if (v === 0) return '不显示峰谷切换提醒'
+    if (v === 16) return '触发后一直显示峰谷切换提醒'
+    return '切换后显示 ' + v + ' 秒，再恢复原对话框'
+  }
+
   function sliderFill(value) {
     var v = Math.max(0, Math.min(16, Number(value) || 0))
     return (v / 16 * 100) + '%'
@@ -1894,6 +2271,20 @@
   function greetingFill(value) {
     var v = Math.max(1, Math.min(15, Number(value) || 10))
     return ((v - 1) / 14 * 100) + '%'
+  }
+
+  function pinchWakeText(value) {
+    var v = Math.max(0, Math.min(16, Number(value) || 0))
+    if (v === 0) return '关闭'
+    if (v === 16) return '一直待机'
+    return v + ' 秒'
+  }
+
+  function pinchWakeHint(value) {
+    var v = Math.max(0, Math.min(16, Number(value) || 0))
+    if (v === 0) return '关闭安慰和唤醒'
+    if (v === 16) return '捏后直接回到待机，不再切回原状态'
+    return '捏后显示待机 ' + v + ' 秒，再恢复原状态'
   }
 
   function renderSettingsPanel() {
@@ -1952,8 +2343,36 @@
         }
         html += subSwitchRow('启用角色切换动画', 'set-switch-anim', settings.switchAnim, !settings.animate) +
           subSwitchRow('启用角色悬浮动画', 'set-float', settings.floatAnim, !settings.animate) +
-          subSwitchRow('启用角色捏捏动画', 'set-pet', settings.petAnim, !settings.animate) +
-          subSwitchRow('启用对话框动画', 'set-bubble-anim', settings.bubbleAnim, !settings.animate) +
+          '<div class="set-row flex">' +
+            '<div class="set-text">' + collapseLabel('启用角色捏捏动画', 'toggle-pinch-group', state.pinchExpanded) + '</div>' +
+            switchButton('set-pet', settings.petAnim, !settings.animate, settings.petAnim ? '关闭角色捏捏动画' : '启用角色捏捏动画') +
+          '</div>'
+        if (state.pinchExpanded) {
+          html += '<div class="set-sub pinch-settings">' +
+            '<div class="set-row">' +
+              '<div class="set-label">允许捏捏</div>' +
+              '<div class="seg pinch-ctx">' +
+                segButton('pinch-ctx', 'greeting', '打招呼时', settings.pinchCtxGreeting, !settings.animate || !settings.petAnim) +
+                segButton('pinch-ctx', 'idle', '待机时', settings.pinchCtxIdle, !settings.animate || !settings.petAnim) +
+                segButton('pinch-ctx', 'waiting', '等待时', settings.pinchCtxWaiting, !settings.animate || !settings.petAnim) +
+                segButton('pinch-ctx', 'error', '错误时', settings.pinchCtxError, !settings.animate || !settings.petAnim) +
+              '</div>' +
+            '</div>' +
+            '<div class="set-row flex pinch-wake-row">' +
+              '<div class="set-text"><div class="set-label">捏捏安慰和唤醒</div></div>' +
+              '<div class="pinch-wake-control">' +
+                '<div class="slider-main">' +
+                  '<div class="slider-tip" id="pinchWakeTip">' + esc(pinchWakeText(settings.pinchWake)) + '</div>' +
+                  '<input type="range" id="pinchWakeRange" class="theme-range" min="0" max="16" step="1" value="' +
+                    settings.pinchWake + '" style="--fill:' + sliderFill(settings.pinchWake) + '"' +
+                    (settings.animate && settings.petAnim ? '' : ' disabled') + ' aria-label="捏捏安慰和唤醒">' +
+                '</div>' +
+                '<div class="set-hint" id="pinchWakeHint">' + esc(pinchWakeHint(settings.pinchWake)) + '</div>' +
+              '</div>' +
+            '</div>' +
+          '</div>'
+        }
+        html += subSwitchRow('启用对话框动画', 'set-bubble-anim', settings.bubbleAnim, !settings.animate) +
         '</div>'
       }
 
@@ -2024,12 +2443,26 @@
 
       html += '<div class="set-row">' +
         '<div class="set-label">余额用量气泡显示方式</div>' +
-        '<div class="set-hint">自动模式：余额或今日已用变化时显示 5 秒；悬停角色可再次显示</div>' +
-        '<div class="seg">' +
-          segButton('set-badge-mode', 'auto', '自动', settings.badgeMode === 'auto') +
-          segButton('set-badge-mode', 'none', '不显示', settings.badgeMode === 'none') +
-          segButton('set-badge-mode', 'always', '一直显示', settings.badgeMode === 'always') +
-        '</div></div>'
+        '<div class="set-hint" id="badgeHint">' + esc(badgeHintText(badgeSliderValue())) + '</div>' +
+        '<div class="slider-wrap"><div class="slider-line">' +
+          '<span id="badgeEndNone" class="slider-end' + (badgeSliderValue() === 0 ? ' hot' : '') + '">不显示</span>' +
+          '<div class="slider-main">' +
+            '<div class="slider-tip" id="badgeTip">' + esc(badgeStateText(badgeSliderValue())) + '</div>' +
+            '<input type="range" id="badgeRange" min="0" max="16" step="1" value="' + badgeSliderValue() +
+              '" style="--fill:' + sliderFill(badgeSliderValue()) + '" aria-label="余额用量气泡显示方式">' +
+          '</div>' +
+          '<span id="badgeEndAlways" class="slider-end' + (badgeSliderValue() === 16 ? ' hot' : '') + '">一直</span>' +
+        '</div></div>' +
+      '</div>'
+
+      html += '<div class="set-row flex">' +
+        '<div class="set-text"><div class="set-label">余额与用量界面图表触发</div>' +
+        '<div class="set-hint">自动显示：鼠标悬浮柱形图；点击显示：点击柱形图</div></div>' +
+        '<div class="choice-frame">' +
+          '<button data-act="set-chart-trigger" data-value="click" class="' + (settings.chartTrigger === 'click' ? 'on' : '') + '">点击显示</button>' +
+          '<button data-act="set-chart-trigger" data-value="auto" class="' + (settings.chartTrigger === 'auto' ? 'on' : '') + '">自动显示</button>' +
+        '</div>' +
+      '</div>'
 
       html += '<div class="set-row">' +
         '<div class="set-head-flex">' +
@@ -2052,33 +2485,35 @@
           settings.clickPanel ? '关闭点击角色打开窗口' : '启用点击角色打开窗口') +
       '</div>'
     } else if (tab === 'reminder') {
-      html += '<div class="set-row flex">' +
-        '<div class="set-text">' +
-          collapseLabel('启用高峰时段提醒对话框', 'toggle-reminder-group', state.reminderExpanded) +
-          '<div class="set-hint">“高峰时段下，在开屏动画或待机状态下弹出提醒对话框”</div>' +
-        '</div>' +
-        switchButton('set-peak-reminder', settings.peakReminder, false,
-          settings.peakReminder ? '关闭高峰时段提醒' : '启用高峰时段提醒') +
+      html += '<div class="set-row">' +
+        '<div class="set-label">高峰时段提醒对话框</div>' +
+        '<div class="set-hint">“高峰时段下，在开屏动画或待机状态下弹出提醒对话框”</div>' +
+        '<div class="slider-wrap"><div class="slider-line">' +
+          '<span id="peakEndNone" class="slider-end' + (peakSliderValue() === 0 ? ' hot' : '') + '">不显示</span>' +
+          '<div class="slider-main">' +
+            '<div class="slider-tip" id="peakTip">' + esc(peakStateText(peakSliderValue())) + '</div>' +
+            '<input type="range" id="peakRange" min="0" max="16" step="1" value="' + peakSliderValue() +
+              '" style="--fill:' + sliderFill(peakSliderValue()) + '" aria-label="高峰时段提醒显示时间">' +
+          '</div>' +
+          '<span id="peakEndAlways" class="slider-end' + (peakSliderValue() === 16 ? ' hot' : '') + '">一直</span>' +
+        '</div></div>' +
+        '<div class="set-hint" id="peakHint">' + esc(peakHintText(peakSliderValue())) + '</div>' +
       '</div>'
 
-      if (state.reminderExpanded) {
-        html += '<div class="set-sub">' +
-          '<div class="set-row">' +
-            '<div class="set-label">提醒显示时间</div>' +
-            '<div class="slider-wrap"><div class="slider-line">' +
-              '<span id="peakEndNone" class="slider-end' + (peakSliderValue() === 0 ? ' hot' : '') + '">不显示</span>' +
-              '<div class="slider-main">' +
-                '<div class="slider-tip" id="peakTip">' + esc(peakStateText(peakSliderValue())) + '</div>' +
-                '<input type="range" id="peakRange" min="0" max="16" step="1" value="' + peakSliderValue() +
-                  '" style="--fill:' + sliderFill(peakSliderValue()) + '" aria-label="高峰时段提醒显示时间"' +
-                  (settings.peakReminder ? '' : ' disabled') + '>' +
-              '</div>' +
-              '<span id="peakEndAlways" class="slider-end' + (peakSliderValue() === 16 ? ' hot' : '') + '">一直</span>' +
-            '</div></div>' +
-            '<div class="set-hint" id="peakHint">' + esc(peakHintText(peakSliderValue())) + '</div>' +
+      html += '<div class="set-row">' +
+        '<div class="set-label">峰谷切换提醒对话框</div>' +
+        '<div class="set-hint">峰谷切换时弹出；谷字绿色，峰字红色</div>' +
+        '<div class="slider-wrap"><div class="slider-line">' +
+          '<span id="peakSwitchEndNone" class="slider-end' + (settings.peakSwitchDuration === 0 ? ' hot' : '') + '">不显示</span>' +
+          '<div class="slider-main">' +
+            '<div class="slider-tip" id="peakSwitchTip">' + esc(peakSwitchStateText(settings.peakSwitchDuration)) + '</div>' +
+            '<input type="range" id="peakSwitchRange" min="0" max="16" step="1" value="' + settings.peakSwitchDuration +
+              '" style="--fill:' + sliderFill(settings.peakSwitchDuration) + '" aria-label="峰谷切换提醒显示时间">' +
           '</div>' +
-        '</div>'
-      }
+          '<span id="peakSwitchEndAlways" class="slider-end' + (settings.peakSwitchDuration === 16 ? ' hot' : '') + '">一直</span>' +
+        '</div></div>' +
+        '<div class="set-hint" id="peakSwitchHint">' + esc(peakSwitchHintText(settings.peakSwitchDuration)) + '</div>' +
+      '</div>'
     } else {
       html += '<div class="set-row flex">' +
         '<div class="set-text"><div class="set-label">提示音</div>' +
@@ -2095,10 +2530,11 @@
             settings.eventSound ? '关闭完成 / 出错 / 等待回答提示音' : '启用完成 / 出错 / 等待回答提示音') +
         '</div>'
       if (state.eventSoundExpanded) {
+        var soundDisabled = !settings.sound || !settings.eventSound
         html += '<div class="set-sub">' +
-          subSwitchRow('完成提示音', 'set-done-sound', settings.doneSound, !settings.sound || !settings.eventSound) +
-          subSwitchRow('出错提示音', 'set-error-sound', settings.errorSound, !settings.sound || !settings.eventSound) +
-          subSwitchRow('等待回答提示音', 'set-wait-sound', settings.waitSound, !settings.sound || !settings.eventSound) +
+          soundVolumeRow('完成提示音', 'done', settings.doneVolume, soundDisabled) +
+          soundVolumeRow('出错提示音', 'error', settings.errorVolume, soundDisabled) +
+          soundVolumeRow('等待回答提示音', 'wait', settings.waitVolume, soundDisabled) +
         '</div>'
       }
       html += '<div class="set-row flex">' +
@@ -2126,7 +2562,11 @@
     el.panel.classList.add('settings-mode')
     el.panel.innerHTML = parts[0] + '<div class="settings-scroll">' + (parts[1] || '') + '</div>'
     bindBubbleControls()
+    bindBadgeControls()
+    bindSoundVolumeControls()
     bindPeakControls()
+    bindPeakSwitchControls()
+    bindPinchWakeControls()
   }
 
   function bindBubbleControls() {
@@ -2216,6 +2656,77 @@
     }
   }
 
+  function bindSoundVolumeControls() {
+    var specs = [
+      { key: 'done', bool: 'doneSound' },
+      { key: 'error', bool: 'errorSound' },
+      { key: 'wait', bool: 'waitSound' },
+    ]
+    specs.forEach(function (spec) {
+      var id = spec.key + 'Volume'
+      var range = el.panel.querySelector('#' + id + 'Range')
+      if (!range) return
+      var tip = el.panel.querySelector('#' + id + 'Tip')
+      var value = el.panel.querySelector('#' + id + 'Value')
+      function update(v, showTip) {
+        var n = Math.max(1, Math.min(100, Math.round(Number(v) || 100)))
+        if (tip) {
+          tip.textContent = n + '%'
+          tip.style.left = Math.max(9, Math.min(91, n)) + '%'
+          tip.classList.toggle('show', !!showTip)
+        }
+        if (value) value.textContent = n + '%'
+        range.style.setProperty('--fill', n + '%')
+      }
+      range.addEventListener('input', function () { update(range.value, true) })
+      range.addEventListener('change', function () {
+        var n = Math.max(1, Math.min(100, Math.round(Number(range.value) || 100)))
+        settings[id] = n
+        settings[spec.bool] = true
+        saveSettings()
+        update(n, false)
+      })
+      range.addEventListener('pointerup', function () { update(range.value, false) })
+      range.addEventListener('blur', function () { update(range.value, false) })
+    })
+  }
+
+  function bindBadgeControls() {
+    var range = el.panel.querySelector('#badgeRange')
+    if (!range) return
+    var tip = el.panel.querySelector('#badgeTip')
+    var hint = el.panel.querySelector('#badgeHint')
+    var endNone = el.panel.querySelector('#badgeEndNone')
+    var endAlways = el.panel.querySelector('#badgeEndAlways')
+    function update(value, showTip) {
+      var v = Math.max(0, Math.min(16, Number(value) || 0))
+      tip.textContent = badgeStateText(v)
+      tip.style.left = Math.max(9, Math.min(91, (v / 16) * 100)) + '%'
+      tip.classList.toggle('show', !!showTip)
+      hint.textContent = badgeHintText(v)
+      range.style.setProperty('--fill', sliderFill(v))
+      if (endNone) endNone.classList.toggle('hot', v === 0)
+      if (endAlways) endAlways.classList.toggle('hot', v === 16)
+    }
+    range.addEventListener('input', function () { update(range.value, true) })
+    range.addEventListener('change', function () {
+      var v = Math.max(0, Math.min(16, Number(range.value) || 0))
+      if (v === 0) {
+        settings.badgeMode = 'none'
+      } else if (v === 16) {
+        settings.badgeMode = 'always'
+      } else {
+        settings.badgeMode = 'auto'
+        settings.badgeDuration = v
+      }
+      saveSettings()
+      applyBadgeSetting()
+      update(v, false)
+    })
+    range.addEventListener('pointerup', function () { update(range.value, false) })
+    range.addEventListener('blur', function () { update(range.value, false) })
+  }
+
   function bindPeakControls() {
     var peakRange = el.panel.querySelector('#peakRange')
     if (!peakRange) return
@@ -2258,6 +2769,65 @@
     peakRange.addEventListener('blur', function () { updatePeak(peakRange.value, false) })
   }
 
+  function bindPeakSwitchControls() {
+    var range = el.panel.querySelector('#peakSwitchRange')
+    if (!range) return
+    var tip = el.panel.querySelector('#peakSwitchTip')
+    var hint = el.panel.querySelector('#peakSwitchHint')
+    var endNone = el.panel.querySelector('#peakSwitchEndNone')
+    var endAlways = el.panel.querySelector('#peakSwitchEndAlways')
+    function update(value, showTip) {
+      var v = Math.max(0, Math.min(16, Number(value) || 0))
+      tip.textContent = peakSwitchStateText(v)
+      tip.style.left = Math.max(9, Math.min(91, (v / 16) * 100)) + '%'
+      tip.classList.toggle('show', !!showTip)
+      hint.textContent = peakSwitchHintText(v)
+      range.style.setProperty('--fill', sliderFill(v))
+      if (endNone) endNone.classList.toggle('hot', v === 0)
+      if (endAlways) endAlways.classList.toggle('hot', v === 16)
+    }
+    range.addEventListener('input', function () { update(range.value, true) })
+    range.addEventListener('change', function () {
+      var v = Math.max(0, Math.min(16, Number(range.value) || 0))
+      settings.peakSwitchDuration = v
+      saveSettings()
+      if (v === 0) {
+        clearPeakSwitch()
+      } else if (peakSwitchActive()) {
+        startPeakSwitch(state.peakSwitchPeak)
+      }
+      update(v, false)
+    })
+    range.addEventListener('pointerup', function () { update(range.value, false) })
+    range.addEventListener('blur', function () { update(range.value, false) })
+  }
+
+  function bindPinchWakeControls() {
+    var range = el.panel.querySelector('#pinchWakeRange')
+    if (!range) return
+    var tip = el.panel.querySelector('#pinchWakeTip')
+    var hint = el.panel.querySelector('#pinchWakeHint')
+    function update(value, showTip) {
+      var v = Math.max(0, Math.min(16, Number(value) || 0))
+      tip.textContent = pinchWakeText(v)
+      tip.style.left = Math.max(9, Math.min(91, (v / 16) * 100)) + '%'
+      tip.classList.toggle('show', !!showTip)
+      hint.textContent = pinchWakeHint(v)
+      range.style.setProperty('--fill', sliderFill(v))
+    }
+    range.addEventListener('input', function () { update(range.value, true) })
+    range.addEventListener('change', function () {
+      var v = Math.max(0, Math.min(16, Number(range.value) || 0))
+      settings.pinchWake = v
+      saveSettings()
+      if (v === 0) clearPinchWake(true)
+      else if (pinchWakeActive()) startPinchWake()
+      update(v, false)
+    })
+    range.addEventListener('pointerup', function () { update(range.value, false) })
+    range.addEventListener('blur', function () { update(range.value, false) })
+  }
+
   function segButton(act, value, label, on, disabled) {
     return '<button data-act="' + act + '" data-value="' + value + '" class="' + (on ? 'on' : '') + '"' +
       (disabled ? ' disabled' : '') + '>' + esc(label) + '</button>'
@@ -2273,6 +2843,23 @@
     return '<div class="set-row flex">' +
       '<div class="set-text"><div class="set-label">' + esc(label) + '</div></div>' +
       switchButton(act, on, disabled, label) +
+    '</div>'
+  }
+
+  function soundVolumeRow(label, key, value, disabled) {
+    var v = Math.max(1, Math.min(100, Math.round(Number(value) || 100)))
+    var id = key + 'Volume'
+    return '<div class="set-row flex sound-vol-row">' +
+      '<div class="set-text"><div class="set-label">' + esc(label) + '</div></div>' +
+      '<div class="sound-vol">' +
+        '<div class="slider-main">' +
+          '<div class="slider-tip" id="' + id + 'Tip">' + v + '%</div>' +
+          '<input type="range" id="' + id + 'Range" min="1" max="100" step="1" value="' + v +
+            '" style="--fill:' + v + '%" aria-label="' + esc(label) + '音量"' +
+            (disabled ? ' disabled' : '') + '>' +
+        '</div>' +
+        '<span class="sound-vol-val" id="' + id + 'Value">' + v + '%</span>' +
+      '</div>' +
     '</div>'
   }
 
@@ -2397,6 +2984,9 @@
     if (state.leaveTimer) { clearTimeout(state.leaveTimer); state.leaveTimer = 0 }
     if (state.greetingTimer) { clearTimeout(state.greetingTimer); state.greetingTimer = 0 }
     if (state.peakTimer) { clearTimeout(state.peakTimer); state.peakTimer = 0 }
+    if (state.peakSwitchTimer) { clearTimeout(state.peakSwitchTimer); state.peakSwitchTimer = 0 }
+    if (state.pinchWakeTimer) { clearTimeout(state.pinchWakeTimer); state.pinchWakeTimer = 0 }
+    if (state.pinchReleaseTimer) { clearTimeout(state.pinchReleaseTimer); state.pinchReleaseTimer = 0 }
     el.pet.classList.remove('greeting', 'open-pop', 'open-sway')
     if (pollTimer) { clearInterval(pollTimer); pollTimer = 0 }
     if (balanceTimer) { clearInterval(balanceTimer); balanceTimer = 0 }
@@ -2422,6 +3012,56 @@
     var out = p.out != null ? fmtPrice(p.out) : '8'
     return '<span class="peak-reminder-line"><span class="peak-hot">高峰时段</span> · 输入 ¥' +
       esc(miss) + ' · 输出 ¥' + esc(out) + ' / 百万 tokens</span>'
+  }
+
+  function peakSwitchActive() {
+    return !!state.peakSwitchLock ||
+      (!!state.peakSwitchUntil && Date.now() < state.peakSwitchUntil)
+  }
+
+  function peakSwitchHtml() {
+    var p = state.price || {}
+    var miss = p.miss != null ? fmtPrice(p.miss) : '2'
+    var out = p.out != null ? fmtPrice(p.out) : '8'
+    var title = state.peakSwitchPeak
+      ? '高<span class="peak-hot">峰</span>时段哦！'
+      : '现在到<span class="valley-hot">谷</span>时啦~'
+    return '<span class="peak-switch-title">' + title + '</span>' +
+      '<span class="peak-switch-price">输入 ¥' + esc(miss) + ' · 输出 ¥' + esc(out) +
+      ' / 百万 tokens</span>'
+  }
+
+  function clearPeakSwitch() {
+    if (state.peakSwitchTimer) { clearTimeout(state.peakSwitchTimer); state.peakSwitchTimer = 0 }
+    state.peakSwitchUntil = 0
+    state.peakSwitchLock = false
+    state.peakSwitchPeak = false
+    renderBubbleText()
+    applyBubbleSetting()
+  }
+
+  function startPeakSwitch(isPeak) {
+    var sec = Math.max(0, Math.min(16, Number(settings.peakSwitchDuration) || 0))
+    if (sec <= 0) return
+    if (state.peakSwitchTimer) { clearTimeout(state.peakSwitchTimer); state.peakSwitchTimer = 0 }
+    state.peakSwitchPeak = !!isPeak
+    if (sec === 16) {
+      state.peakSwitchLock = true
+      state.peakSwitchUntil = 0
+    } else {
+      state.peakSwitchLock = false
+      state.peakSwitchUntil = Date.now() + sec * 1000
+      state.peakSwitchTimer = setTimeout(function () {
+        state.peakSwitchTimer = 0
+        state.peakSwitchUntil = 0
+        renderBubbleText()
+        applyBubbleSetting()
+      }, sec * 1000)
+    }
+    state.bubbleAutoHidden = false
+    clearBubbleTimer()
+    refreshBubbleVisibility()
+    renderBubbleText()
   }
 
   function startPeakReminder() {
@@ -2482,8 +3122,18 @@
 
   function renderBubbleText() {
     var peakLine = peakReminderLineHtml()
+    if (peakSwitchActive()) {
+      el.bubbleText.innerHTML = peakSwitchHtml()
+      el.dots.style.display = 'none'
+      return
+    }
     if (state.greeting) {
       el.bubbleText.innerHTML = esc('我来啦～') + peakLine
+      el.dots.style.display = 'none'
+      return
+    }
+    if (pinchWakeActive()) {
+      el.bubbleText.innerHTML = esc('轮到你啦！')
       el.dots.style.display = 'none'
       return
     }
@@ -2516,7 +3166,10 @@
     var stateChanged = !prev || prev.state !== act.state
     var textChanged = !prev || prev.text !== act.text
     state.activity = act
-    if (!state.greeting) {
+    if (pinchWakeActive() && ['error', 'aborted', 'stone', 'idle'].indexOf(act.state) === -1) {
+      clearPinchWake(false)
+    }
+    if (!state.greeting && !pinchWakeActive()) {
       el.pet.setAttribute('data-state', act.state || 'waiting')
       var spriteKey = state.overrideSprite || act.sprite || 'idle'
       if (el.sprite.getAttribute('src') !== spriteUrl(spriteKey)) {
@@ -2651,10 +3304,12 @@
     }
 
     var peak = st.isPeak === true || (st.balance && st.balance.isPeak === true)
+    var prevPeak = state.lastPeak
     state.isPeak = peak
     if (st.price) state.price = st.price
-    if (peak && state.lastPeak !== true) startPeakReminder()
-    if (!peak && state.lastPeak === true) {
+    if (prevPeak !== null && prevPeak !== peak) startPeakSwitch(peak)
+    if (peak && prevPeak !== true) startPeakReminder()
+    if (!peak && prevPeak === true) {
       if (state.peakTimer) { clearTimeout(state.peakTimer); state.peakTimer = 0 }
       state.peakBannerUntil = 0
       renderBubbleText()
@@ -2675,9 +3330,13 @@
     if (ev && ev.seq > state.lastEventSeq) {
       state.lastEventSeq = ev.seq
       if (settings.sound && settings.eventSound && !settings.hidden) {
-        if (ev.kind === 'error' && settings.errorSound) play('error', 0.55)
-        else if (ev.kind === 'done' && settings.doneSound) play('done', 0.5)
-        else if ((ev.kind === 'question' || ev.kind === 'approval') && settings.waitSound) play('waiting', 0.42)
+        if (ev.kind === 'error' && settings.errorVolume > 0) {
+          play('error', EVENT_SOUND_BASE.error * settings.errorVolume / 100)
+        } else if (ev.kind === 'done' && settings.doneVolume > 0) {
+          play('done', EVENT_SOUND_BASE.done * settings.doneVolume / 100)
+        } else if ((ev.kind === 'question' || ev.kind === 'approval') && settings.waitVolume > 0) {
+          play('waiting', EVENT_SOUND_BASE.waiting * settings.waitVolume / 100)
+        }
       }
       if (ev.kind === 'done') {
         // 余额扣减通常落后于 turn/end，等几秒再强刷两次
